@@ -12,11 +12,24 @@ function getDbPath(): string {
 
 let _db: Database.Database | null = null;
 
+const FALLBACK_DB_PATH = "/tmp/reservation.db";
+
 function createDb(): Database.Database {
-  const dbPath = getDbPath();
-  const db = new Database(dbPath);
-  // Use DELETE journal mode in production/serverless; WAL can cause SQLITE_CANTOPEN with -wal/-shm on some runtimes.
-  const useWal = process.env.NODE_ENV !== "production";
+  let dbPath = getDbPath();
+  let db: Database.Database;
+  try {
+    db = new Database(dbPath);
+  } catch (err: unknown) {
+    const code = err && typeof err === "object" && "code" in err ? (err as { code: string }).code : "";
+    if (code === "SQLITE_CANTOPEN" && dbPath !== FALLBACK_DB_PATH) {
+      dbPath = FALLBACK_DB_PATH;
+      db = new Database(dbPath);
+    } else {
+      throw err;
+    }
+  }
+  // Use DELETE journal mode when using /tmp (serverless); WAL can cause SQLITE_CANTOPEN with -wal/-shm.
+  const useWal = !dbPath.startsWith("/tmp");
   db.pragma(`journal_mode = ${useWal ? "WAL" : "DELETE"}`);
   db.exec(`
     CREATE TABLE IF NOT EXISTS users (
@@ -189,7 +202,13 @@ export function ensureDbDirectory() {
     process.env.DATABASE_PATH ??
     (process.env.NODE_ENV === "production" ? path.join("/tmp", "reservation.db") : path.join(process.cwd(), "data", "reservation.db"));
   const dir = path.dirname(dbPath);
-  if (dir !== "/tmp" && !fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+  if (dir !== "/tmp" && !fs.existsSync(dir)) {
+    try {
+      fs.mkdirSync(dir, { recursive: true });
+    } catch {
+      // Read-only FS (e.g. serverless); createDb() will fall back to /tmp on SQLITE_CANTOPEN
+    }
+  }
 }
 
 export function initDb(): Database.Database {
