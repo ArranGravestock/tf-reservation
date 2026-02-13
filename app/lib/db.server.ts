@@ -2,7 +2,9 @@ import Database from "better-sqlite3";
 import fs from "node:fs";
 import path from "node:path";
 
-const DB_PATH = process.env.DATABASE_PATH ?? path.join(process.cwd(), "data", "reservation.db");
+const DB_PATH =
+  process.env.DATABASE_PATH ??
+  (process.env.NETLIFY ? path.join("/tmp", "reservation.db") : path.join(process.cwd(), "data", "reservation.db"));
 
 let _db: Database.Database | null = null;
 
