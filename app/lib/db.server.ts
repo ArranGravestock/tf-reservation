@@ -14,23 +14,22 @@ let _db: Database.Database | null = null;
 
 const FALLBACK_DB_PATH = "/tmp/reservation.db";
 
-function createDb(): Database.Database {
-  let dbPath = getDbPath();
+function isCantOpen(err: unknown): boolean {
+  return err !== null && typeof err === "object" && "code" in err && (err as { code: string }).code === "SQLITE_CANTOPEN";
+}
+
+function createDbWithPath(dbPath: string): Database.Database {
   let db: Database.Database;
   try {
     db = new Database(dbPath);
+    const useWal = !dbPath.startsWith("/tmp");
+    db.pragma(`journal_mode = ${useWal ? "WAL" : "DELETE"}`);
   } catch (err: unknown) {
-    const code = err && typeof err === "object" && "code" in err ? (err as { code: string }).code : "";
-    if (code === "SQLITE_CANTOPEN" && dbPath !== FALLBACK_DB_PATH) {
-      dbPath = FALLBACK_DB_PATH;
-      db = new Database(dbPath);
-    } else {
-      throw err;
+    if (isCantOpen(err) && dbPath !== FALLBACK_DB_PATH) {
+      return createDbWithPath(FALLBACK_DB_PATH);
     }
+    throw err;
   }
-  // Use DELETE journal mode when using /tmp (serverless); WAL can cause SQLITE_CANTOPEN with -wal/-shm.
-  const useWal = !dbPath.startsWith("/tmp");
-  db.pragma(`journal_mode = ${useWal ? "WAL" : "DELETE"}`);
   db.exec(`
     CREATE TABLE IF NOT EXISTS users (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -112,6 +111,10 @@ function createDb(): Database.Database {
     db.exec("ALTER TABLE users ADD COLUMN last_name TEXT");
   }
   return db;
+}
+
+function createDb(): Database.Database {
+  return createDbWithPath(getDbPath());
 }
 
 export type User = {

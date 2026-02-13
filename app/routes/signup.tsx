@@ -96,7 +96,10 @@ export async function action({ request }: { request: Request }) {
     }
     return redirect("/verify-email?sent=1");
   } catch (err) {
-    if (err instanceof Response && err.status >= 300 && err.status < 400) throw err;
+    if (err && typeof err === "object" && "status" in err) {
+      const status = (err as { status: number }).status;
+      if (status >= 300 && status < 400) throw err;
+    }
     console.error("Signup action error:", err);
     const message = err instanceof Error ? err.message : String(err);
     return { error: `Something went wrong. Please try again. (${message})` };
@@ -139,6 +142,7 @@ export default function Signup() {
         </div>
         <Form
           method="post"
+          action="/signup"
           className="space-y-5 rounded-3xl bg-white dark:bg-neutral-800/80 p-6 shadow-sm dark:shadow-none border border-neutral-200/60 dark:border-neutral-700/60"
         >
           {actionData?.error && (
