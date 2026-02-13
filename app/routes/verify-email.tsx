@@ -12,9 +12,24 @@ export async function loader({ request }: { request: Request }) {
   const url = new URL(request.url);
   const token = url.searchParams.get("token");
   const sent = url.searchParams.get("sent");
+  const emailErrorRaw = url.searchParams.get("email_error");
+  const emailError = emailErrorRaw
+    ? (() => {
+        try {
+          return decodeURIComponent(emailErrorRaw);
+        } catch {
+          return emailErrorRaw;
+        }
+      })()
+    : null;
 
   if (sent === "1" && !token) {
-    return { sent: true, hasUserId: false, resendCooldownUntil: null };
+    return {
+      sent: true,
+      hasUserId: false,
+      resendCooldownUntil: null,
+      emailError,
+    };
   }
 
   const { getUserId } = await import("~/lib/auth.server");
@@ -45,7 +60,12 @@ export async function loader({ request }: { request: Request }) {
   const lastResend = session.get("lastVerificationResend") as number | undefined;
   const resendCooldownUntil = lastResend ? lastResend + RESEND_COOLDOWN_MS : null;
 
-  return { sent: !!sent, hasUserId: !!userId, resendCooldownUntil };
+  return {
+    sent: !!sent,
+    hasUserId: !!userId,
+    resendCooldownUntil,
+    emailError,
+  };
 }
 
 export async function action({ request }: { request: Request }) {
@@ -114,7 +134,7 @@ export async function action({ request }: { request: Request }) {
 export default function VerifyEmail() {
   const loaderData = useLoaderData<typeof loader>();
   const actionData = useActionData<typeof action>();
-  const { sent, hasUserId, resendCooldownUntil: loaderCooldown } = loaderData;
+  const { sent, hasUserId, resendCooldownUntil: loaderCooldown, emailError } = loaderData;
   const [searchParams] = useSearchParams();
   const token = searchParams.get("token");
   const isDev = import.meta.env.DEV;
@@ -166,9 +186,9 @@ export default function VerifyEmail() {
             Enter the verification link from your email in the address bar, or request a new one below.
           </p>
         )}
-        {actionData && "error" in actionData && actionData.error && (
+        {(emailError || (actionData && "error" in actionData && actionData.error)) && (
           <div className="rounded-xl bg-red-500/10 text-red-600 dark:text-red-400 px-3 py-2.5 text-[15px]">
-            {actionData.error}
+            {emailError ?? (actionData && "error" in actionData ? actionData.error : null)}
           </div>
         )}
         <div className="flex flex-col gap-3">

@@ -80,21 +80,24 @@ export async function action({ request }: { request: Request }) {
     const verifyUrl = `${origin}/verify-email?token=${token}`;
 
     const { isEmailConfigured, sendVerificationEmail } = await import("~/lib/email.server");
-    if (!isEmailConfigured()) {
-      return { error: "Email is not configured. Set SMTP_USER and SMTP_PASS." };
+    let emailError: string | null = null;
+    if (isEmailConfigured()) {
+      try {
+        await sendVerificationEmail(email, verifyUrl);
+      } catch (err) {
+        console.error("Failed to send verification email:", err);
+        const raw = err instanceof Error ? err.message : String(err);
+        const isAuthError = /535|authentication failed|Invalid login/i.test(raw);
+        emailError = isAuthError
+          ? "SMTP authentication failed. For Proton Mail: use a custom-domain address and the SMTP token from Settings → Proton Mail → IMAP/SMTP → SMTP tokens (not your account password)."
+          : `Could not send email: ${raw}`;
+      }
+    } else {
+      emailError = "Email is not configured. Set SMTP_USER and SMTP_PASS.";
     }
-    try {
-      await sendVerificationEmail(email, verifyUrl);
-    } catch (err) {
-      console.error("Failed to send verification email:", err);
-      const raw = err instanceof Error ? err.message : String(err);
-      const isAuthError = /535|authentication failed|Invalid login/i.test(raw);
-      const message = isAuthError
-        ? "SMTP authentication failed. For Proton Mail: use a custom-domain address and the SMTP token from Settings → Proton Mail → IMAP/SMTP → SMTP tokens (not your account password)."
-        : `Could not send email: ${raw}`;
-      return { error: message };
-    }
-    return redirect("/verify-email?sent=1");
+    const params = new URLSearchParams({ sent: "1" });
+    if (emailError) params.set("email_error", encodeURIComponent(emailError));
+    return redirect(`/verify-email?${params.toString()}`);
   } catch (err) {
     if (err && typeof err === "object" && "status" in err) {
       const status = (err as { status: number }).status;
@@ -142,7 +145,6 @@ export default function Signup() {
         </div>
         <Form
           method="post"
-          action="/signup"
           className="space-y-5 rounded-3xl bg-white dark:bg-neutral-800/80 p-6 shadow-sm dark:shadow-none border border-neutral-200/60 dark:border-neutral-700/60"
         >
           {actionData?.error && (
