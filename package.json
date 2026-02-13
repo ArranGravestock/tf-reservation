@@ -5,7 +5,7 @@
   "scripts": {
     "build": "react-router build",
     "dev": "react-router dev",
-    "start": "react-router-serve ./build/server/index.js",
+    "start": "node -r dotenv/config ./node_modules/.bin/react-router-serve ./build/server/index.js",
     "typecheck": "react-router typegen && tsc",
     "seed:signups": "node scripts/seed-fake-signups.mjs"
   },
@@ -14,6 +14,7 @@
     "@react-router/serve": "7.12.0",
     "bcryptjs": "^3.0.3",
     "better-sqlite3": "^12.6.2",
+    "dotenv": "^17.3.1",
     "isbot": "^5.1.31",
     "nodemailer": "^8.0.1",
     "react": "^19.2.4",
