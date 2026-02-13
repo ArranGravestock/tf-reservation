@@ -2,34 +2,13 @@ import Database from "better-sqlite3";
 import fs from "node:fs";
 import path from "node:path";
 
-/** Resolved at runtime so env vars (e.g. on Netlify) are read when the function runs, not at bundle time. */
-function getDbPath(): string {
-  if (process.env.DATABASE_PATH) return process.env.DATABASE_PATH;
-  // Serverless (Netlify, etc.): only /tmp is writable. Use it when in production so we don't rely on NETLIFY being in the bundle.
-  if (process.env.NODE_ENV === "production") return path.join("/tmp", "reservation.db");
-  return path.join(process.cwd(), "data", "reservation.db");
-}
+const DB_PATH = process.env.DATABASE_PATH ?? path.join(process.cwd(), "data", "reservation.db");
 
 let _db: Database.Database | null = null;
 
-const FALLBACK_DB_PATH = "/tmp/reservation.db";
-
-function isCantOpen(err: unknown): boolean {
-  return err !== null && typeof err === "object" && "code" in err && (err as { code: string }).code === "SQLITE_CANTOPEN";
-}
-
-function createDbWithPath(dbPath: string): Database.Database {
-  let db: Database.Database;
-  try {
-    db = new Database(dbPath);
-    const useWal = !dbPath.startsWith("/tmp");
-    db.pragma(`journal_mode = ${useWal ? "WAL" : "DELETE"}`);
-  } catch (err: unknown) {
-    if (isCantOpen(err) && dbPath !== FALLBACK_DB_PATH) {
-      return createDbWithPath(FALLBACK_DB_PATH);
-    }
-    throw err;
-  }
+function createDb(): Database.Database {
+  const db = new Database(DB_PATH);
+  db.pragma("journal_mode = WAL");
   db.exec(`
     CREATE TABLE IF NOT EXISTS users (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -111,10 +90,6 @@ function createDbWithPath(dbPath: string): Database.Database {
     db.exec("ALTER TABLE users ADD COLUMN last_name TEXT");
   }
   return db;
-}
-
-function createDb(): Database.Database {
-  return createDbWithPath(getDbPath());
 }
 
 export type User = {
@@ -201,17 +176,8 @@ export function getDb(): Database.Database {
 }
 
 export function ensureDbDirectory() {
-  const dbPath =
-    process.env.DATABASE_PATH ??
-    (process.env.NODE_ENV === "production" ? path.join("/tmp", "reservation.db") : path.join(process.cwd(), "data", "reservation.db"));
-  const dir = path.dirname(dbPath);
-  if (dir !== "/tmp" && !fs.existsSync(dir)) {
-    try {
-      fs.mkdirSync(dir, { recursive: true });
-    } catch {
-      // Read-only FS (e.g. serverless); createDb() will fall back to /tmp on SQLITE_CANTOPEN
-    }
-  }
+  const dir = path.dirname(DB_PATH);
+  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
 }
 
 export function initDb(): Database.Database {
