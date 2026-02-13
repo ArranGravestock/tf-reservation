@@ -2,14 +2,19 @@ import Database from "better-sqlite3";
 import fs from "node:fs";
 import path from "node:path";
 
-const DB_PATH =
-  process.env.DATABASE_PATH ??
-  (process.env.NETLIFY ? path.join("/tmp", "reservation.db") : path.join(process.cwd(), "data", "reservation.db"));
+/** Resolved at runtime so env vars (e.g. on Netlify) are read when the function runs, not at bundle time. */
+function getDbPath(): string {
+  if (process.env.DATABASE_PATH) return process.env.DATABASE_PATH;
+  // Serverless (Netlify, etc.): only /tmp is writable. Use it when in production so we don't rely on NETLIFY being in the bundle.
+  if (process.env.NODE_ENV === "production") return path.join("/tmp", "reservation.db");
+  return path.join(process.cwd(), "data", "reservation.db");
+}
 
 let _db: Database.Database | null = null;
 
 function createDb(): Database.Database {
-  const db = new Database(DB_PATH);
+  const dbPath = getDbPath();
+  const db = new Database(dbPath);
   db.pragma("journal_mode = WAL");
   db.exec(`
     CREATE TABLE IF NOT EXISTS users (
