@@ -17,88 +17,101 @@ export async function loader({ request }: { request: Request }) {
 }
 
 export async function action({ request }: { request: Request }) {
-  const formData = await request.formData();
-  const username = String(formData.get("username") ?? "").trim();
-  const firstName = String(formData.get("firstName") ?? "").trim();
-  const lastName = String(formData.get("lastName") ?? "").trim();
-  const email = String(formData.get("email") ?? "").trim().toLowerCase();
-  const password = String(formData.get("password") ?? "");
-  const confirm = String(formData.get("confirmPassword") ?? "");
-  const rawEmoji = String(formData.get("profileEmoji") ?? "").trim();
-  const profileEmoji = isAllowedProfileEmoji(rawEmoji) ? rawEmoji.slice(0, 8) : DEFAULT_PROFILE_EMOJI;
-
-  if (!username || !firstName || !lastName || !email || !password) {
-    return { error: "All fields are required." };
-  }
-  if (username.length < 2) {
-    return { error: "Username must be at least 2 characters." };
-  }
-  if (firstName.length < 1) {
-    return { error: "Please enter your first name." };
-  }
-  if (lastName.length < 1) {
-    return { error: "Please enter your last name." };
-  }
-  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-    return { error: "Please enter a valid email address." };
-  }
-  if (password.length < 8) {
-    return { error: "Password must be at least 8 characters." };
-  }
-  if (password !== confirm) {
-    return { error: "Passwords do not match." };
-  }
-
-  const db = getDb();
-  if (db.prepare("SELECT 1 FROM users WHERE LOWER(username) = LOWER(?)").get(username)) {
-    return { error: "Username is already taken." };
-  }
-  if (db.prepare("SELECT 1 FROM users WHERE LOWER(email) = ?").get(email)) {
-    return { error: "An account with this email already exists." };
-  }
-
-  const passwordHash = await hashPassword(password);
-  const { token, expires } = createVerificationToken();
   try {
-    db.prepare(
-      `INSERT INTO users (username, email, password_hash, email_verified, verification_token, verification_expires, first_name, last_name, profile_emoji)
-       VALUES (?, ?, ?, 0, ?, ?, ?, ?, ?)`
-    ).run(username, email, passwordHash, token, Math.floor(expires / 1000), firstName, lastName, profileEmoji);
-  } catch (err) {
-    const msg = err && typeof err === "object" && "message" in err ? String((err as { message: unknown }).message) : "";
-    if (msg.includes("UNIQUE constraint failed") && msg.includes("username")) {
+    const formData = await request.formData();
+    const username = String(formData.get("username") ?? "").trim();
+    const firstName = String(formData.get("firstName") ?? "").trim();
+    const lastName = String(formData.get("lastName") ?? "").trim();
+    const email = String(formData.get("email") ?? "").trim().toLowerCase();
+    const password = String(formData.get("password") ?? "");
+    const confirm = String(formData.get("confirmPassword") ?? "");
+    const rawEmoji = String(formData.get("profileEmoji") ?? "").trim();
+    const profileEmoji = isAllowedProfileEmoji(rawEmoji) ? rawEmoji.slice(0, 8) : DEFAULT_PROFILE_EMOJI;
+
+    if (!username || !firstName || !lastName || !email || !password) {
+      return { error: "All fields are required." };
+    }
+    if (username.length < 2) {
+      return { error: "Username must be at least 2 characters." };
+    }
+    if (firstName.length < 1) {
+      return { error: "Please enter your first name." };
+    }
+    if (lastName.length < 1) {
+      return { error: "Please enter your last name." };
+    }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      return { error: "Please enter a valid email address." };
+    }
+    if (password.length < 8) {
+      return { error: "Password must be at least 8 characters." };
+    }
+    if (password !== confirm) {
+      return { error: "Passwords do not match." };
+    }
+
+    const db = getDb();
+    if (db.prepare("SELECT 1 FROM users WHERE LOWER(username) = LOWER(?)").get(username)) {
       return { error: "Username is already taken." };
     }
-    if (msg.includes("UNIQUE constraint failed") && msg.includes("email")) {
+    if (db.prepare("SELECT 1 FROM users WHERE LOWER(email) = ?").get(email)) {
       return { error: "An account with this email already exists." };
     }
-    throw err;
-  }
 
-  const origin = getOrigin(request);
-  const verifyUrl = `${origin}/verify-email?token=${token}`;
+    const passwordHash = await hashPassword(password);
+    const { token, expires } = createVerificationToken();
+    try {
+      db.prepare(
+        `INSERT INTO users (username, email, password_hash, email_verified, verification_token, verification_expires, first_name, last_name, profile_emoji)
+         VALUES (?, ?, ?, 0, ?, ?, ?, ?, ?)`
+      ).run(username, email, passwordHash, token, Math.floor(expires / 1000), firstName, lastName, profileEmoji);
+    } catch (err) {
+      const msg = err && typeof err === "object" && "message" in err ? String((err as { message: unknown }).message) : "";
+      if (msg.includes("UNIQUE constraint failed") && msg.includes("username")) {
+        return { error: "Username is already taken." };
+      }
+      if (msg.includes("UNIQUE constraint failed") && msg.includes("email")) {
+        return { error: "An account with this email already exists." };
+      }
+      throw err;
+    }
 
-  const { isEmailConfigured, sendVerificationEmail } = await import("~/lib/email.server");
-  if (!isEmailConfigured()) {
-    return { error: "Email is not configured. Set SMTP_USER and SMTP_PASS." };
-  }
-  try {
-    await sendVerificationEmail(email, verifyUrl);
+    const origin = getOrigin(request);
+    const verifyUrl = `${origin}/verify-email?token=${token}`;
+
+    const { isEmailConfigured, sendVerificationEmail } = await import("~/lib/email.server");
+    if (!isEmailConfigured()) {
+      return { error: "Email is not configured. Set SMTP_USER and SMTP_PASS." };
+    }
+    try {
+      await sendVerificationEmail(email, verifyUrl);
+    } catch (err) {
+      console.error("Failed to send verification email:", err);
+      const raw = err instanceof Error ? err.message : String(err);
+      const isAuthError = /535|authentication failed|Invalid login/i.test(raw);
+      const message = isAuthError
+        ? "SMTP authentication failed. For Proton Mail: use a custom-domain address and the SMTP token from Settings → Proton Mail → IMAP/SMTP → SMTP tokens (not your account password)."
+        : `Could not send email: ${raw}`;
+      return { error: message };
+    }
+    return redirect("/verify-email?sent=1");
   } catch (err) {
-    console.error("Failed to send verification email:", err);
-    const raw = err instanceof Error ? err.message : String(err);
-    const isAuthError = /535|authentication failed|Invalid login/i.test(raw);
-    const message = isAuthError
-      ? "SMTP authentication failed. For Proton Mail: use a custom-domain address and the SMTP token from Settings → Proton Mail → IMAP/SMTP → SMTP tokens (not your account password)."
-      : `Could not send email: ${raw}`;
-    return { error: message };
+    if (err instanceof Response && err.status >= 300 && err.status < 400) throw err;
+    console.error("Signup action error:", err);
+    const message = err instanceof Error ? err.message : String(err);
+    return { error: `Something went wrong. Please try again. (${message})` };
   }
-  return redirect("/verify-email?sent=1");
 }
 
 function getOrigin(request: Request): string {
-  const url = new URL(request.url);
-  return url.origin;
+  try {
+    const url = new URL(request.url);
+    return url.origin;
+  } catch {
+    const host = request.headers.get("x-forwarded-host") ?? request.headers.get("host");
+    const proto = request.headers.get("x-forwarded-proto") ?? "https";
+    return host ? `${proto}://${host}` : "https://localhost";
+  }
 }
 
 export default function Signup() {

@@ -15,7 +15,9 @@ let _db: Database.Database | null = null;
 function createDb(): Database.Database {
   const dbPath = getDbPath();
   const db = new Database(dbPath);
-  db.pragma("journal_mode = WAL");
+  // Use DELETE journal mode in production/serverless; WAL can cause SQLITE_CANTOPEN with -wal/-shm on some runtimes.
+  const useWal = process.env.NODE_ENV !== "production";
+  db.pragma(`journal_mode = ${useWal ? "WAL" : "DELETE"}`);
   db.exec(`
     CREATE TABLE IF NOT EXISTS users (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
