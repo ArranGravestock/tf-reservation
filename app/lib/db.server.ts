@@ -183,7 +183,7 @@ export function getDb(): Database.Database {
 }
 
 export function ensureDbDirectory() {
-  const dir = path.dirname(DB_PATH);
+  const dir = path.dirname(getDbPath());
   if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
 }
 
