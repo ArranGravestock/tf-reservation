@@ -10,6 +10,7 @@
     "seed:signups": "node scripts/seed-fake-signups.mjs"
   },
   "dependencies": {
+    "@netlify/remix-adapter": "^2.7.0",
     "@react-router/node": "7.12.0",
     "@react-router/serve": "7.12.0",
     "bcryptjs": "^3.0.3",
