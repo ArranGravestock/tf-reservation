@@ -77,6 +77,9 @@ export async function action({ request }: { request: Request }) {
     if (newPassword.length === 0) {
       return redirect("/settings");
     }
+    if (newPassword === currentPassword) {
+      return { intent: "password", error: "New password must be different from your current password." };
+    }
     const error = await updateUserProfile(user.id, {
       currentPassword,
       newPassword,
@@ -100,6 +103,12 @@ export default function Settings() {
       ? user.profileEmoji
       : DEFAULT_PROFILE_EMOJI;
   const [selectedEmoji, setSelectedEmoji] = useState(resolvedInitialEmoji);
+  const [showCurrentPassword, setShowCurrentPassword] = useState(false);
+  const [showNewPassword, setShowNewPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+  const [passwordCurrent, setPasswordCurrent] = useState("");
+  const [passwordNew, setPasswordNew] = useState("");
+  const [passwordConfirm, setPasswordConfirm] = useState("");
   const fullName = [user.firstName, user.lastName].filter(Boolean).join(" ") || user.username;
   const navigate = useNavigate();
 
@@ -109,6 +118,14 @@ export default function Settings() {
       return () => clearTimeout(t);
     }
   }, [updatedProfile, navigate]);
+
+  useEffect(() => {
+    if (updatedPassword) {
+      setPasswordCurrent("");
+      setPasswordNew("");
+      setPasswordConfirm("");
+    }
+  }, [updatedPassword]);
 
   return (
     <main className="min-h-screen bg-[#f5f5f7] dark:bg-[#1c1c1e] p-6 pb-12">
@@ -349,43 +366,85 @@ export default function Settings() {
             <label htmlFor="passwordCurrentPassword" className="block text-[13px] font-medium text-neutral-500 dark:text-neutral-400 mb-1.5">
               Current password
             </label>
-            <input
-              id="passwordCurrentPassword"
-              name="currentPassword"
-              type="password"
-              autoComplete="current-password"
-              className="w-full rounded-xl bg-neutral-100 dark:bg-neutral-700/50 border-0 px-4 py-3 text-[17px] text-neutral-900 dark:text-white placeholder-neutral-400 focus:outline-none focus:ring-2 focus:ring-[#0A84FF] focus:ring-offset-2 dark:focus:ring-offset-neutral-800"
-              placeholder="Current password"
-            />
+            <div className="relative">
+              <input
+                id="passwordCurrentPassword"
+                name="currentPassword"
+                type={showCurrentPassword ? "text" : "password"}
+                value={passwordCurrent}
+                onChange={(e) => setPasswordCurrent(e.target.value)}
+                autoComplete="current-password"
+                className="w-full rounded-xl bg-neutral-100 dark:bg-neutral-700/50 border-0 px-4 pr-12 py-3 text-[17px] text-neutral-900 dark:text-white placeholder-neutral-400 focus:outline-none focus:ring-2 focus:ring-[#0A84FF] focus:ring-offset-2 dark:focus:ring-offset-neutral-800"
+                placeholder="Current password"
+              />
+              <button
+                type="button"
+                onClick={() => setShowCurrentPassword((p) => !p)}
+                className="absolute right-3 top-1/2 -translate-y-1/2 p-1.5 rounded-lg text-neutral-500 hover:text-neutral-700 dark:text-neutral-400 dark:hover:text-neutral-200 hover:bg-neutral-200/60 dark:hover:bg-neutral-600/50 transition-colors"
+                aria-label={showCurrentPassword ? "Hide password" : "Show password"}
+              >
+                <span className="text-lg leading-none" aria-hidden>
+                  {showCurrentPassword ? "🙈" : "👁️"}
+                </span>
+              </button>
+            </div>
           </div>
 
           <div>
             <label htmlFor="accountNewPassword" className="block text-[13px] font-medium text-neutral-500 dark:text-neutral-400 mb-1.5">
               New password
             </label>
-            <input
-              id="accountNewPassword"
-              name="newPassword"
-              type="password"
-              autoComplete="new-password"
-              minLength={8}
-              className="w-full rounded-xl bg-neutral-100 dark:bg-neutral-700/50 border-0 px-4 py-3 text-[17px] text-neutral-900 dark:text-white placeholder-neutral-400 focus:outline-none focus:ring-2 focus:ring-[#0A84FF] focus:ring-offset-2 dark:focus:ring-offset-neutral-800"
-              placeholder="At least 8 characters"
-            />
+            <div className="relative">
+              <input
+                id="accountNewPassword"
+                name="newPassword"
+                type={showNewPassword ? "text" : "password"}
+                value={passwordNew}
+                onChange={(e) => setPasswordNew(e.target.value)}
+                autoComplete="new-password"
+                minLength={8}
+                className="w-full rounded-xl bg-neutral-100 dark:bg-neutral-700/50 border-0 px-4 pr-12 py-3 text-[17px] text-neutral-900 dark:text-white placeholder-neutral-400 focus:outline-none focus:ring-2 focus:ring-[#0A84FF] focus:ring-offset-2 dark:focus:ring-offset-neutral-800"
+                placeholder="At least 8 characters"
+              />
+              <button
+                type="button"
+                onClick={() => setShowNewPassword((p) => !p)}
+                className="absolute right-3 top-1/2 -translate-y-1/2 p-1.5 rounded-lg text-neutral-500 hover:text-neutral-700 dark:text-neutral-400 dark:hover:text-neutral-200 hover:bg-neutral-200/60 dark:hover:bg-neutral-600/50 transition-colors"
+                aria-label={showNewPassword ? "Hide password" : "Show password"}
+              >
+                <span className="text-lg leading-none" aria-hidden>
+                  {showNewPassword ? "🙈" : "👁️"}
+                </span>
+              </button>
+            </div>
           </div>
 
           <div>
             <label htmlFor="accountConfirmPassword" className="block text-[13px] font-medium text-neutral-500 dark:text-neutral-400 mb-1.5">
               Confirm new password
             </label>
-            <input
-              id="accountConfirmPassword"
-              name="confirmPassword"
-              type="password"
-              autoComplete="new-password"
-              placeholder="Confirm your new password"
-              className="w-full rounded-xl bg-neutral-100 dark:bg-neutral-700/50 border-0 px-4 py-3 text-[17px] text-neutral-900 dark:text-white placeholder-neutral-400 focus:outline-none focus:ring-2 focus:ring-[#0A84FF] focus:ring-offset-2 dark:focus:ring-offset-neutral-800"
-            />
+            <div className="relative">
+              <input
+                id="accountConfirmPassword"
+                name="confirmPassword"
+                type={showConfirmPassword ? "text" : "password"}
+                value={passwordConfirm}
+                onChange={(e) => setPasswordConfirm(e.target.value)}
+                autoComplete="new-password"
+                placeholder="Confirm your new password"
+                className="w-full rounded-xl bg-neutral-100 dark:bg-neutral-700/50 border-0 px-4 pr-12 py-3 text-[17px] text-neutral-900 dark:text-white placeholder-neutral-400 focus:outline-none focus:ring-2 focus:ring-[#0A84FF] focus:ring-offset-2 dark:focus:ring-offset-neutral-800"
+              />
+              <button
+                type="button"
+                onClick={() => setShowConfirmPassword((p) => !p)}
+                className="absolute right-3 top-1/2 -translate-y-1/2 p-1.5 rounded-lg text-neutral-500 hover:text-neutral-700 dark:text-neutral-400 dark:hover:text-neutral-200 hover:bg-neutral-200/60 dark:hover:bg-neutral-600/50 transition-colors"
+                aria-label={showConfirmPassword ? "Hide password" : "Show password"}
+              >
+                <span className="text-lg leading-none" aria-hidden>
+                  {showConfirmPassword ? "🙈" : "👁️"}
+                </span>
+              </button>
+            </div>
           </div>
 
           <button

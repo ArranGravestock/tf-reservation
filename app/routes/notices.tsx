@@ -1,17 +1,20 @@
 import { Link, useLoaderData } from "react-router";
 import type { Route } from "./+types/notices";
-import { requireAdmin } from "~/lib/auth.server";
-import { getDb, getNoticesList } from "~/lib/db";
 
 export function meta({}: Route.MetaArgs) {
-  return [{ title: "Notices – Terrible Football Liverpool" }];
+  return [{ title: "Notifications – Terrible Football Liverpool" }];
 }
 
 export async function loader({ request }: Route.LoaderArgs) {
-  await requireAdmin(request);
+  const { isAdmin, requireVerifiedUser } = await import("~/lib/auth.server");
+  const { getDb, getNoticesForUser, getNoticesList } = await import("~/lib/db.server");
+  const user = await requireVerifiedUser(request);
   const db = getDb();
-  const notices = getNoticesList(db);
-  return { notices };
+  const admin = isAdmin(user);
+  const notices = admin
+    ? getNoticesList(db)
+    : getNoticesForUser(db, user.id).map((n) => ({ ...n, event_title: null as string | null }));
+  return { notices, isAdmin: admin };
 }
 
 function formatEventLabel(event_date: string, event_title: string | null) {
@@ -31,7 +34,7 @@ function formatCreatedAt(unixSeconds: number) {
 }
 
 export default function Notices() {
-  const { notices } = useLoaderData<typeof loader>();
+  const { notices, isAdmin } = useLoaderData<typeof loader>();
 
   return (
     <main className="min-h-screen bg-[#f5f5f7] dark:bg-[#1c1c1e] p-6 pb-12">
@@ -40,23 +43,29 @@ export default function Notices() {
           <Link to="/events" className="text-[15px] text-[#0A84FF] hover:opacity-80 inline-block">
             ← Back to sessions
           </Link>
-          <Link
-            to="/notices/create"
-            className="rounded-xl bg-[#0A84FF] px-4 py-2.5 text-[15px] font-medium text-white hover:opacity-90 active:opacity-80 transition-opacity shrink-0"
-          >
-            Create notice
-          </Link>
+          {isAdmin && (
+            <Link
+              to="/notices/create"
+              className="rounded-xl bg-[#0A84FF] px-4 py-2.5 text-[15px] font-medium text-white hover:opacity-90 active:opacity-80 transition-opacity shrink-0"
+            >
+              Create notification
+            </Link>
+          )}
         </div>
         <h1 className="text-[28px] font-semibold text-neutral-900 dark:text-white mb-2">
-          Notices
+          Notifications
         </h1>
         <p className="text-[15px] text-neutral-500 dark:text-neutral-400 mb-8">
-          Notices are shown as a toast to everyone signed up for the selected event.
+          {isAdmin
+            ? "Notifications are shown as a toast to everyone signed up for the selected event."
+            : "Updates for events you're signed up for."}
         </p>
 
         {notices.length === 0 ? (
           <p className="text-[15px] text-neutral-500 dark:text-neutral-400 rounded-2xl bg-white dark:bg-neutral-800/80 p-6 border border-neutral-200/60 dark:border-neutral-700/60">
-            No notices yet. Create one to notify signed-up users about an event.
+            {isAdmin
+              ? "No notifications yet. Create one to notify signed-up users about an event."
+              : "No notifications for your events yet."}
           </p>
         ) : (
           <ul className="space-y-3">

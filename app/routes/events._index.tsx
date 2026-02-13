@@ -1,8 +1,7 @@
 import { Form, Link, useLoaderData, useActionData } from "react-router";
 import { useState, useEffect } from "react";
 import type { Route } from "./+types/events._index";
-import { requireVerifiedUser } from "~/lib/auth.server";
-import { getDb, ensureSaturdayEvents, isEventEnded, isEventStarted, type Event } from "~/lib/db";
+import type { Event } from "~/lib/db.server";
 import { DEFAULT_PROFILE_EMOJI } from "~/lib/emoji";
 
 export function meta({}: Route.MetaArgs) {
@@ -15,6 +14,8 @@ const TIME = "10:30am";
 type EventWithSignups = Event & { signup_count: number };
 
 export async function loader({ request }: { request: Request }) {
+  const { requireVerifiedUser } = await import("~/lib/auth.server");
+  const { getDb, ensureSaturdayEvents, isEventEnded, isEventStarted } = await import("~/lib/db.server");
   const user = await requireVerifiedUser(request);
   const db = getDb();
   ensureSaturdayEvents(db, 12);
@@ -23,6 +24,7 @@ export async function loader({ request }: { request: Request }) {
        COUNT(s.id) + COALESCE(SUM(s.guest_count), 0) as signup_count
      FROM events e
      LEFT JOIN event_signups s ON s.event_id = e.id
+     WHERE strftime('%w', e.event_date) = '6'
      GROUP BY e.id
      ORDER BY e.event_date ASC`
   ).all() as (Event & { signup_count: number | string })[];
@@ -85,6 +87,8 @@ export async function loader({ request }: { request: Request }) {
 
 export async function action({ request }: { request: Request }) {
   if (request.method !== "POST") return null;
+  const { requireVerifiedUser } = await import("~/lib/auth.server");
+  const { getDb, isEventStarted } = await import("~/lib/db.server");
   const user = await requireVerifiedUser(request);
   const formData = await request.formData();
   const intent = formData.get("intent");
@@ -214,33 +218,11 @@ export default function EventsIndex() {
           </div>
         )}
         <img
-          src="/football-session.avif"
+          src="/clean_455005399.avif"
           alt=""
           className="h-full w-full object-cover"
-          style={{ display: "none" }}
-          onLoad={(e) => {
-            e.currentTarget.style.display = "block";
-            const fallback = e.currentTarget.nextElementSibling;
-            if (fallback) (fallback as HTMLElement).style.display = "none";
-          }}
-          onError={(e) => {
-            e.currentTarget.style.display = "none";
-            const fallback = e.currentTarget.nextElementSibling;
-            if (fallback) (fallback as HTMLElement).style.display = "block";
-          }}
-        />
-        <svg
-          className="w-12 h-12 text-neutral-400 dark:text-neutral-500"
-          fill="none"
-          viewBox="0 0 24 24"
-          stroke="currentColor"
-          strokeWidth={1.5}
           aria-hidden
-        >
-          <circle cx="12" cy="12" r="10" />
-          <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" />
-          <path d="M2 12h20" />
-        </svg>
+        />
       </div>
       <div className="p-4 flex flex-col gap-1">
         <span className="text-[17px] font-semibold text-neutral-900 dark:text-white">

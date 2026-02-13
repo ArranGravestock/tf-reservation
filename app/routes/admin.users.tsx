@@ -5,7 +5,7 @@ const PAGE_SIZE_OPTIONS = [10, 20, 50, 100] as const;
 const DEFAULT_PAGE_SIZE = 20;
 import type { Route } from "./+types/admin.users";
 import { createVerificationToken, requireAdmin } from "~/lib/auth.server";
-import { getDb } from "~/lib/db";
+import { getDb } from "~/lib/db.server";
 
 export function meta({}: Route.MetaArgs) {
   return [{ title: "Users – Admin – Terrible Football Liverpool" }];

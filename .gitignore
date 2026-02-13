@@ -1,0 +1,30 @@
+# Dependencies
+node_modules/
+
+# Environment (keep .env.example)
+.env
+.env.local
+.env.*.local
+
+# Build / framework
+build/
+dist/
+.react-router/
+
+# SQLite
+data/*.db
+*.db-wal
+*.db-shm
+*.db-journal
+
+# Logs and OS
+*.log
+.DS_Store
+Thumbs.db
+
+# Editor
+.idea/
+.vscode/
+*.swp
+*.swo
+*~

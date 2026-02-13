@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { Form, Link, useLoaderData, useActionData } from "react-router";
 import type { Route } from "./+types/events.$eventId";
 import { isAdmin, requireAdmin, requireVerifiedUser } from "~/lib/auth.server";
-import { getDb, updateEvent, isEventEnded, isEventStarted, type Event } from "~/lib/db";
+import { getDb, updateEvent, isEventEnded, isEventStarted, isSaturdayEvent, type Event } from "~/lib/db.server";
 import { DEFAULT_PROFILE_EMOJI } from "~/lib/emoji";
 
 export function meta({}: Route.MetaArgs) {
@@ -24,6 +24,7 @@ export async function loader({ request, params }: { request: Request; params: Pr
     .prepare("SELECT id, event_date, created_at, title, description, location, time FROM events WHERE id = ?")
     .get(id) as Event | undefined;
   if (!event) throw new Response("Not found", { status: 404 });
+  if (!isSaturdayEvent(event.event_date)) throw new Response("Not found", { status: 404 });
   const signups = db.prepare(
     `SELECT u.id, u.username, u.first_name, u.last_name, u.profile_emoji, s.created_at as signed_up_at, COALESCE(s.guest_count, 0) as guest_count FROM event_signups s JOIN users u ON u.id = s.user_id WHERE s.event_id = ? ORDER BY s.created_at ASC`
   ).all(id) as { id: number; username: string; first_name: string | null; last_name: string | null; profile_emoji: string | null; signed_up_at: number; guest_count: number }[];
@@ -51,6 +52,7 @@ export async function action({ request, params }: { request: Request; params: Pr
     | { id: number; event_date: string; time: string | null }
     | undefined;
   if (!event) return { error: "Event not found" };
+  if (!isSaturdayEvent(event.event_date)) return { error: "Event not found" };
   const ended = isEventEnded(event);
   const started = isEventStarted(event);
 
@@ -288,33 +290,11 @@ export default function EventDetail() {
         )}
         <div className="mb-8 rounded-2xl overflow-hidden bg-neutral-200/80 dark:bg-neutral-700/60 aspect-[21/9] flex items-center justify-center shadow-inner ring-1 ring-neutral-200/60 dark:ring-neutral-600/40">
           <img
-            src="/football-session.avif"
+            src="/clean_455005399.avif"
             alt=""
             className="h-full w-full object-cover"
-            style={{ display: "none" }}
-            onLoad={(e) => {
-              e.currentTarget.style.display = "block";
-              const fallback = e.currentTarget.nextElementSibling;
-              if (fallback) (fallback as HTMLElement).style.display = "none";
-            }}
-            onError={(e) => {
-              e.currentTarget.style.display = "none";
-              const fallback = e.currentTarget.nextElementSibling;
-              if (fallback) (fallback as HTMLElement).style.display = "block";
-            }}
-          />
-          <svg
-            className="w-16 h-16 text-neutral-400 dark:text-neutral-500"
-            fill="none"
-            viewBox="0 0 24 24"
-            stroke="currentColor"
-            strokeWidth={1.5}
             aria-hidden
-          >
-            <circle cx="12" cy="12" r="10" />
-            <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" />
-            <path d="M2 12h20" />
-          </svg>
+          />
         </div>
 
         {actionData?.error && (

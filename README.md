@@ -20,21 +20,15 @@ npm run dev
 
 Open [http://localhost:5173](http://localhost:5173). You’ll be redirected to login; use “Sign up” to create an account.
 
-### Email verification (development)
+### Email verification
 
-After signup, the app redirects to “Check your email”. In development the verification URL is printed in the terminal, e.g.:
-
-```
-[DEV] Email verification link: http://localhost:5173/verify-email?token=...
-```
-
-Open that URL in the browser to verify, then sign in.
+After signup, the app sends a verification email and redirects to “Check your email”. Open the link in the email to verify, then sign in. In development, set `SMTP_USER` and `SMTP_PASS` in `.env` to receive the email (no auto-verify).
 
 ### Production
 
 - Set **`SESSION_SECRET`** to a long random string (e.g. `openssl rand -hex 32`).
 - Optionally set **`DATABASE_PATH`** (default: `./data/reservation.db`).
-- For real email verification, integrate an email provider (e.g. Resend, SendGrid) and send the verification link from the signup action instead of logging it.
+- For real email (verification + password reset), set **SMTP** env vars. Example: **Proton Mail** direct SMTP (paid plan with custom domain)—create an SMTP token in Settings → Proton Mail → IMAP/SMTP → SMTP tokens, then set `SMTP_USER` (your custom-domain address), `SMTP_PASS` (the token). Defaults: `SMTP_HOST=smtp.protonmail.ch`, `SMTP_PORT=587`. See `.env.example`.
 
 ## Tech
 

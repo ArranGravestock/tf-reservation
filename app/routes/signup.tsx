@@ -3,7 +3,7 @@ import { Form, redirect, useActionData } from "react-router";
 import type { Route } from "./+types/signup";
 import { getUserId } from "~/lib/auth.server";
 import { hashPassword, createVerificationToken } from "~/lib/auth.server";
-import { getDb } from "~/lib/db";
+import { getDb } from "~/lib/db.server";
 import { ANIMAL_EMOJIS, DEFAULT_PROFILE_EMOJI, isAllowedProfileEmoji } from "~/lib/emoji";
 
 export function meta({}: Route.MetaArgs) {
@@ -75,14 +75,24 @@ export async function action({ request }: { request: Request }) {
     throw err;
   }
 
-  // In production you would send an email with a link like:
-  // ${origin}/verify-email?token=${token}
-  // In development we skip email and redirect straight to the verification link
-  // so you can create an account and sign in without setting up email.
-  if (process.env.NODE_ENV !== "production") {
-    return redirect(`/verify-email?token=${token}`);
-  }
+  const origin = getOrigin(request);
+  const verifyUrl = `${origin}/verify-email?token=${token}`;
 
+  const { isEmailConfigured, sendVerificationEmail } = await import("~/lib/email.server");
+  if (!isEmailConfigured()) {
+    return { error: "Email is not configured. Set SMTP_USER and SMTP_PASS." };
+  }
+  try {
+    await sendVerificationEmail(email, verifyUrl);
+  } catch (err) {
+    console.error("Failed to send verification email:", err);
+    const raw = err instanceof Error ? err.message : String(err);
+    const isAuthError = /535|authentication failed|Invalid login/i.test(raw);
+    const message = isAuthError
+      ? "SMTP authentication failed. For Proton Mail: use a custom-domain address and the SMTP token from Settings → Proton Mail → IMAP/SMTP → SMTP tokens (not your account password)."
+      : `Could not send email: ${raw}`;
+    return { error: message };
+  }
   return redirect("/verify-email?sent=1");
 }
 
@@ -110,7 +120,7 @@ export default function Signup() {
           </p>
           {import.meta.env.DEV && (
             <p className="mt-2 text-[13px] text-amber-600 dark:text-amber-400">
-              In development you’ll be verified automatically—no email needed.
+              Set SMTP_USER and SMTP_PASS in .env to receive the verification email.
             </p>
           )}
         </div>

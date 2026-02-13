@@ -1,6 +1,8 @@
 import { createCookieSessionStorage } from "react-router";
 
-const sessionSecret = process.env.SESSION_SECRET ?? "dev-secret-change-in-production";
+const sessionSecret =
+  (typeof process.env.SESSION_SECRET === "string" && process.env.SESSION_SECRET.trim()) ||
+  "dev-secret-change-in-production";
 
 export const sessionStorage = createCookieSessionStorage({
   cookie: {

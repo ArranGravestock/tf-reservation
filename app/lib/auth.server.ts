@@ -1,7 +1,7 @@
 import bcrypt from "bcryptjs";
 import crypto from "node:crypto";
 import { redirect } from "react-router";
-import { getDb, type User } from "./db";
+import { getDb, type User } from "./db.server";
 import { getSession, commitSession, destroySession } from "./session.server";
 
 const SALT_ROUNDS = 10;
@@ -112,8 +112,8 @@ export async function requestPasswordReset(email: string): Promise<{ error?: str
   const baseUrl = process.env.ORIGIN ?? "http://localhost:5173";
   const resetUrl = `${baseUrl}/reset-password?token=${token}`;
   if (process.env.NODE_ENV === "production") {
-    // TODO: send email via Resend/SendGrid/etc.
-    // await sendPasswordResetEmail(user.email, resetUrl);
+    const { sendPasswordResetEmail } = await import("./email.server");
+    await sendPasswordResetEmail(user.email, resetUrl);
   } else {
     console.log("[dev] Password reset link:", resetUrl);
   }

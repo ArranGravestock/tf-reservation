@@ -1,20 +1,20 @@
 import { useState } from "react";
 import { Form, redirect, useActionData, useSearchParams } from "react-router";
 import type { Route } from "./+types/login";
-import { getUserId } from "~/lib/auth.server";
-import { login } from "~/lib/auth.server";
 
 export function meta({}: Route.MetaArgs) {
   return [{ title: "Login – Terrible Football Liverpool" }];
 }
 
 export async function loader({ request }: { request: Request }) {
-  const userId = await getUserId(request);
-  if (userId) return redirect("/events");
+  const { getUser } = await import("~/lib/auth.server");
+  const user = await getUser(request);
+  if (user?.email_verified) return redirect("/events");
   return null;
 }
 
 export async function action({ request }: { request: Request }) {
+  const { login } = await import("~/lib/auth.server");
   const formData = await request.formData();
   const username = String(formData.get("username") ?? "").trim();
   const password = String(formData.get("password") ?? "");

@@ -80,7 +80,7 @@ export default function Faq() {
           to="/"
           className="text-[15px] text-[#0A84FF] hover:opacity-80 mb-6 inline-block"
         >
-          ← Back
+          ← Back to sessions
         </Link>
         <h1 className="text-[28px] font-semibold text-neutral-900 dark:text-white mb-8">
           Frequently asked questions
