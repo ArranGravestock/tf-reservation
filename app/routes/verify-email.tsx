@@ -9,13 +9,18 @@ export function meta({}: Route.MetaArgs) {
 }
 
 export async function loader({ request }: { request: Request }) {
+  const url = new URL(request.url);
+  const token = url.searchParams.get("token");
+  const sent = url.searchParams.get("sent");
+
+  if (sent === "1" && !token) {
+    return { sent: true, hasUserId: false, resendCooldownUntil: null };
+  }
+
   const { getUserId } = await import("~/lib/auth.server");
   const { getDb } = await import("~/lib/db.server");
   const { getSession } = await import("~/lib/session.server");
   const userId = await getUserId(request);
-  const url = new URL(request.url);
-  const token = url.searchParams.get("token");
-  const sent = url.searchParams.get("sent");
 
   if (userId && !token) {
     const db = getDb();

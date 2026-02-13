@@ -1,8 +1,7 @@
 import { useState } from "react";
 import { Form, redirect, useActionData } from "react-router";
 import type { Route } from "./+types/signup";
-import { getUserId } from "~/lib/auth.server";
-import { hashPassword, createVerificationToken } from "~/lib/auth.server";
+import { getUser, hashPassword, createVerificationToken } from "~/lib/auth.server";
 import { getDb } from "~/lib/db.server";
 import { ANIMAL_EMOJIS, DEFAULT_PROFILE_EMOJI, isAllowedProfileEmoji } from "~/lib/emoji";
 
@@ -11,8 +10,9 @@ export function meta({}: Route.MetaArgs) {
 }
 
 export async function loader({ request }: { request: Request }) {
-  const userId = await getUserId(request);
-  if (userId) return redirect("/events");
+  const user = await getUser(request);
+  if (user?.email_verified) return redirect("/events");
+  if (user && !user.email_verified) return redirect("/verify-email");
   return null;
 }
 

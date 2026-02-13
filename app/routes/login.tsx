@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Form, redirect, useActionData, useSearchParams } from "react-router";
+import { Form, Link, redirect, useActionData, useSearchParams } from "react-router";
 import type { Route } from "./+types/login";
 
 export function meta({}: Route.MetaArgs) {
@@ -119,9 +119,9 @@ export default function Login() {
           </button>
           <p className="text-center text-[15px] text-neutral-500 dark:text-neutral-400">
             Don&apos;t have an account?{" "}
-            <a href="/signup" className="text-[#0A84FF] hover:underline">
+            <Link to="/signup" className="text-[#0A84FF] hover:underline">
               Sign up
-            </a>
+            </Link>
           </p>
         </Form>
       </div>
