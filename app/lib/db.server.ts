@@ -183,8 +183,11 @@ export function getDb(): Database.Database {
 }
 
 export function ensureDbDirectory() {
-  const dir = path.dirname(getDbPath());
-  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+  const dbPath =
+    process.env.DATABASE_PATH ??
+    (process.env.NODE_ENV === "production" ? path.join("/tmp", "reservation.db") : path.join(process.cwd(), "data", "reservation.db"));
+  const dir = path.dirname(dbPath);
+  if (dir !== "/tmp" && !fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
 }
 
 export function initDb(): Database.Database {
