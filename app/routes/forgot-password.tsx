@@ -29,7 +29,7 @@ export default function ForgotPassword() {
           </p>
           <Link
             to="/login"
-            className="inline-block rounded-xl bg-[#0A84FF] px-5 py-2.5 text-[17px] font-medium text-white hover:opacity-90 active:opacity-80 transition-opacity"
+            className="inline-block rounded-xl bg-[#f56772] px-5 py-2.5 text-[17px] font-medium text-white hover:opacity-90 active:opacity-80 transition-opacity"
           >
             Back to sign in
           </Link>
@@ -71,18 +71,18 @@ export default function ForgotPassword() {
               type="email"
               autoComplete="email"
               required
-              className="w-full rounded-xl bg-neutral-100 dark:bg-neutral-700/50 border-0 px-4 py-3 text-[17px] text-neutral-900 dark:text-white placeholder-neutral-400 focus:outline-none focus:ring-2 focus:ring-[#0A84FF] focus:ring-offset-2 dark:focus:ring-offset-neutral-800"
+              className="w-full rounded-xl bg-neutral-100 dark:bg-neutral-700/50 border-0 px-4 py-3 text-[17px] text-neutral-900 dark:text-white placeholder-neutral-400 focus:outline-none focus:ring-2 focus:ring-[#f56772] focus:ring-offset-2 dark:focus:ring-offset-neutral-800"
               placeholder="Your email address"
             />
           </div>
           <button
             type="submit"
-            className="w-full rounded-xl bg-[#0A84FF] px-4 py-3 text-[17px] font-medium text-white hover:opacity-90 active:opacity-80 transition-opacity"
+            className="w-full rounded-xl bg-[#f56772] px-4 py-3 text-[17px] font-medium text-white hover:opacity-90 active:opacity-80 transition-opacity"
           >
             Send reset link
           </button>
           <p className="text-center text-[15px] text-neutral-500 dark:text-neutral-400">
-            <Link to="/login" className="text-[#0A84FF] hover:underline">
+            <Link to="/login" className="text-[#f56772] hover:underline">
               Back to sign in
             </Link>
           </p>

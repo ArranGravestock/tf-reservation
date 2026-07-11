@@ -78,9 +78,9 @@ export default function Faq() {
       <div className="max-w-2xl mx-auto">
         <Link
           to="/"
-          className="text-[15px] text-[#0A84FF] hover:opacity-80 mb-6 inline-block"
+          className="text-[15px] text-[#f56772] hover:opacity-80 mb-6 inline-block"
         >
-          ← Back to sessions
+          ← Back
         </Link>
         <h1 className="text-[28px] font-semibold text-neutral-900 dark:text-white mb-8">
           Frequently asked questions

@@ -1,8 +1,10 @@
 import { Form, Link, useLoaderData, useActionData } from "react-router";
 import { useState, useEffect } from "react";
 import type { Route } from "./+types/events._index";
-import type { Event } from "~/lib/db.server";
+import { requireVerifiedUser } from "~/lib/auth.server";
+import { getDb, ensureSaturdayEvents, isEventEnded, isEventStarted, type Event } from "~/lib/db";
 import { DEFAULT_PROFILE_EMOJI } from "~/lib/emoji";
+import { SessionImage } from "~/components/SessionImage";
 
 export function meta({}: Route.MetaArgs) {
   return [{ title: "Saturday sessions – Terrible Football Liverpool" }];
@@ -14,8 +16,6 @@ const TIME = "10:30am";
 type EventWithSignups = Event & { signup_count: number };
 
 export async function loader({ request }: { request: Request }) {
-  const { requireVerifiedUser } = await import("~/lib/auth.server");
-  const { getDb, ensureSaturdayEvents, isEventEnded, isEventStarted } = await import("~/lib/db.server");
   const user = await requireVerifiedUser(request);
   const db = getDb();
   ensureSaturdayEvents(db, 12);
@@ -24,7 +24,6 @@ export async function loader({ request }: { request: Request }) {
        COUNT(s.id) + COALESCE(SUM(s.guest_count), 0) as signup_count
      FROM events e
      LEFT JOIN event_signups s ON s.event_id = e.id
-     WHERE strftime('%w', e.event_date) = '6'
      GROUP BY e.id
      ORDER BY e.event_date ASC`
   ).all() as (Event & { signup_count: number | string })[];
@@ -87,8 +86,6 @@ export async function loader({ request }: { request: Request }) {
 
 export async function action({ request }: { request: Request }) {
   if (request.method !== "POST") return null;
-  const { requireVerifiedUser } = await import("~/lib/auth.server");
-  const { getDb, isEventStarted } = await import("~/lib/db.server");
   const user = await requireVerifiedUser(request);
   const formData = await request.formData();
   const intent = formData.get("intent");
@@ -211,17 +208,15 @@ export default function EventsIndex() {
               type="checkbox"
               checked={selectedIds.has(event.id)}
               onChange={() => toggleSelect(event.id)}
-              className="rounded border-neutral-300 text-[#0A84FF] focus:ring-[#0A84FF]"
+              className="rounded border-neutral-300 text-[#f56772] focus:ring-[#f56772]"
               aria-label={`Select ${formatDate(event.event_date)}`}
             />
             <span className="text-[13px] font-medium text-neutral-700">Sign up</span>
           </div>
         )}
-        <img
-          src="/clean_455005399.avif"
-          alt=""
-          className="h-full w-full object-cover"
-          aria-hidden
+        <SessionImage
+          seed={event.id}
+          className="h-full w-full text-neutral-500 dark:text-neutral-400"
         />
       </div>
       <div className="p-4 flex flex-col gap-1">
@@ -245,9 +240,10 @@ export default function EventsIndex() {
               {signupEmojiPreview[event.id].emojis.map((emoji, i) => (
                 <span
                   key={i}
-                  className="flex shrink-0 items-center justify-center w-5 h-5 min-w-5 min-h-5 rounded-full bg-white dark:bg-neutral-700 border-2 border-white dark:border-neutral-900 text-[10px] ring-1 ring-neutral-200/80 dark:ring-neutral-600/80 overflow-hidden leading-none"
+                  className="inline-grid shrink-0 place-items-center rounded-full bg-white dark:bg-neutral-700 border-2 border-white dark:border-neutral-900 text-[10px] ring-1 ring-neutral-200/80 dark:ring-neutral-600/80 overflow-hidden leading-none"
+                  style={{ width: 20, height: 20, minWidth: 20, minHeight: 20, padding: 0, boxSizing: "border-box" }}
                 >
-                  <span className="inline-flex items-center justify-center leading-none">{emoji}</span>
+                  {emoji}
                 </span>
               ))}
               {signupEmojiPreview[event.id].userCount > 3 && (
@@ -334,9 +330,9 @@ export default function EventsIndex() {
                             toggleSelect(event.id);
                           }
                         }}
-                        className={`flex flex-col h-full rounded-2xl border overflow-hidden cursor-pointer transition-colors hover:bg-neutral-50 dark:hover:bg-neutral-700/80 focus:outline-none focus:ring-2 focus:ring-[#0A84FF] focus:ring-offset-2 dark:focus:ring-offset-neutral-900 ${
+                        className={`flex flex-col h-full rounded-2xl border overflow-hidden cursor-pointer transition-colors hover:bg-neutral-50 dark:hover:bg-neutral-700/80 focus:outline-none focus:ring-2 focus:ring-[#f56772] focus:ring-offset-2 dark:focus:ring-offset-neutral-900 ${
                           selectedIds.has(event.id)
-                            ? "bg-[#0A84FF]/10 dark:bg-[#0A84FF]/15 border-[#0A84FF]/40 dark:border-[#0A84FF]/30"
+                            ? "bg-[#f56772]/10 dark:bg-[#f56772]/15 border-[#f56772]/40 dark:border-[#f56772]/30"
                             : "bg-white dark:bg-neutral-800/80 border-neutral-200/80 dark:border-neutral-700/60"
                         }`}
                       >
@@ -372,7 +368,7 @@ export default function EventsIndex() {
               <input type="hidden" name="unsignupEventIds" value={idsToUnsignup.join(",")} />
               <button
                 type="submit"
-                className="rounded-xl bg-[#0A84FF] px-5 py-2.5 text-[15px] font-medium text-white hover:opacity-90 active:opacity-80 transition-opacity"
+                className="rounded-xl bg-[#f56772] px-5 py-2.5 text-[15px] font-medium text-white hover:opacity-90 active:opacity-80 transition-opacity"
               >
                 Save
               </button>

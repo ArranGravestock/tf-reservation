@@ -1,10 +1,10 @@
 import { Form, Link, redirect, useActionData, useLoaderData } from "react-router";
 import type { Route } from "./+types/notices.create";
 import { requireAdmin } from "~/lib/auth.server";
-import { getDb, ensureSaturdayEvents, createNotice, type Event } from "~/lib/db.server";
+import { getDb, ensureSaturdayEvents, createNotice, type Event } from "~/lib/db";
 
 export function meta({}: Route.MetaArgs) {
-  return [{ title: "Create notification – Terrible Football Liverpool" }];
+  return [{ title: "Create notice – Terrible Football Liverpool" }];
 }
 
 export async function loader({ request }: Route.LoaderArgs) {
@@ -12,7 +12,7 @@ export async function loader({ request }: Route.LoaderArgs) {
   const db = getDb();
   ensureSaturdayEvents(db, 12);
   const events = db
-    .prepare("SELECT id, event_date, title FROM events WHERE strftime('%w', event_date) = '6' ORDER BY event_date ASC")
+    .prepare("SELECT id, event_date, title FROM events ORDER BY event_date ASC")
     .all() as (Pick<Event, "id" | "event_date"> & { title?: string | null })[];
   return { events };
 }
@@ -46,14 +46,14 @@ export default function NoticesCreate() {
   return (
     <main className="min-h-screen bg-[#f5f5f7] dark:bg-[#1c1c1e] p-6 pb-12">
       <div className="max-w-2xl mx-auto">
-        <Link to="/notices" className="text-[15px] text-[#0A84FF] hover:opacity-80 mb-6 inline-block">
-          ← Back to notifications
+        <Link to="/notices" className="text-[15px] text-[#f56772] hover:opacity-80 mb-6 inline-block">
+          ← Back to notices
         </Link>
         <h1 className="text-[28px] font-semibold text-neutral-900 dark:text-white mb-2">
-          Create notification
+          Create notice
         </h1>
         <p className="text-[15px] text-neutral-500 dark:text-neutral-400 mb-8">
-          Notifications are shown as a toast to everyone who has signed up for the selected event.
+          Notices are shown as a toast to everyone who has signed up for the selected event.
         </p>
         <Form
           method="post"
@@ -72,7 +72,7 @@ export default function NoticesCreate() {
               id="event_id"
               name="event_id"
               required
-              className="w-full rounded-xl bg-neutral-100 dark:bg-neutral-700/50 border-0 px-4 py-3 text-[17px] text-neutral-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-[#0A84FF] focus:ring-offset-2 dark:focus:ring-offset-neutral-800"
+              className="w-full rounded-xl bg-neutral-100 dark:bg-neutral-700/50 border-0 px-4 py-3 text-[17px] text-neutral-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-[#f56772] focus:ring-offset-2 dark:focus:ring-offset-neutral-800"
             >
               <option value="">Select an event</option>
               {events.map((e) => (
@@ -92,14 +92,14 @@ export default function NoticesCreate() {
               required
               rows={4}
               placeholder="e.g. This Saturday we're meeting at the north entrance instead."
-              className="w-full rounded-xl bg-neutral-100 dark:bg-neutral-700/50 border-0 px-4 py-3 text-[17px] text-neutral-900 dark:text-white placeholder-neutral-400 focus:outline-none focus:ring-2 focus:ring-[#0A84FF] focus:ring-offset-2 dark:focus:ring-offset-neutral-800 resize-y min-h-[100px]"
+              className="w-full rounded-xl bg-neutral-100 dark:bg-neutral-700/50 border-0 px-4 py-3 text-[17px] text-neutral-900 dark:text-white placeholder-neutral-400 focus:outline-none focus:ring-2 focus:ring-[#f56772] focus:ring-offset-2 dark:focus:ring-offset-neutral-800 resize-y min-h-[100px]"
             />
           </div>
           <button
             type="submit"
-            className="w-full rounded-xl bg-[#0A84FF] px-4 py-3 text-[17px] font-medium text-white hover:opacity-90 active:opacity-80 transition-opacity"
+            className="w-full rounded-xl bg-[#f56772] px-4 py-3 text-[17px] font-medium text-white hover:opacity-90 active:opacity-80 transition-opacity"
           >
-            Create notification
+            Create notice
           </button>
         </Form>
       </div>

@@ -5,7 +5,8 @@ const PAGE_SIZE_OPTIONS = [10, 20, 50, 100] as const;
 const DEFAULT_PAGE_SIZE = 20;
 import type { Route } from "./+types/admin.users";
 import { createVerificationToken, requireAdmin } from "~/lib/auth.server";
-import { getDb } from "~/lib/db.server";
+import { getDb } from "~/lib/db";
+import { isEmailConfigured, sendVerificationEmail } from "~/lib/email.server";
 
 export function meta({}: Route.MetaArgs) {
   return [{ title: "Users – Admin – Terrible Football Liverpool" }];
@@ -47,7 +48,7 @@ export async function action({ request }: Route.ActionArgs) {
       .filter((n) => !Number.isNaN(n));
     let lastLink: string | undefined;
     for (const targetUserId of userIds) {
-      const target = db.prepare("SELECT id, email FROM users WHERE id = ?").get(targetUserId) as { id: number; email: string } | undefined;
+      const target = db.prepare("SELECT id, email, username FROM users WHERE id = ?").get(targetUserId) as { id: number; email: string; username: string } | undefined;
       if (!target) continue;
       const { token, expires } = createVerificationToken();
       db.prepare(
@@ -55,7 +56,9 @@ export async function action({ request }: Route.ActionArgs) {
       ).run(token, Math.floor(expires / 1000), targetUserId);
       const origin = new URL(request.url).origin;
       lastLink = `${origin}/verify-email?token=${token}`;
-      if (process.env.NODE_ENV !== "production") {
+      if (isEmailConfigured()) {
+        await sendVerificationEmail(target.email, lastLink, target.username);
+      } else if (process.env.NODE_ENV !== "production") {
         console.log("[admin resend verification] Link for", target.email, ":", lastLink);
       }
     }
@@ -227,7 +230,7 @@ export default function AdminUsers() {
     <main className="h-[calc(100vh-3.5rem-1px)] flex flex-col overflow-hidden bg-[#f5f5f7] dark:bg-[#1c1c1e]">
       <div className="flex-1 flex flex-col min-h-0 max-w-2xl lg:max-w-5xl w-full mx-auto p-6 overflow-hidden">
         <div className="shrink-0 mb-4">
-          <Link to="/events" className="text-[15px] text-[#0A84FF] hover:opacity-80 inline-block">
+          <Link to="/events" className="text-[15px] text-[#f56772] hover:opacity-80 inline-block">
             ← Back to sessions
           </Link>
         </div>
@@ -238,25 +241,20 @@ export default function AdminUsers() {
           All registered users. Search and filter below.
         </p>
 
-        {actionData?.error && (
-          <p className="mb-4 rounded-xl bg-amber-100 dark:bg-amber-900/30 border border-amber-200 dark:border-amber-800 px-4 py-3 text-[15px] text-amber-800 dark:text-amber-200">
-            {actionData.error}
-          </p>
-        )}
         <div className="shrink-0 flex flex-col sm:flex-row gap-3 mb-4">
           <input
             type="search"
             placeholder="Search by name, username or email…"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            className="flex-1 min-w-0 rounded-xl bg-white dark:bg-neutral-800/80 border border-neutral-200/80 dark:border-neutral-700/60 px-4 py-2.5 text-[15px] text-neutral-900 dark:text-white placeholder-neutral-400 focus:outline-none focus:ring-2 focus:ring-[#0A84FF] focus:ring-offset-2 dark:focus:ring-offset-neutral-900"
+            className="flex-1 min-w-0 rounded-xl bg-white dark:bg-neutral-800/80 border border-neutral-200/80 dark:border-neutral-700/60 px-4 py-2.5 text-[15px] text-neutral-900 dark:text-white placeholder-neutral-400 focus:outline-none focus:ring-2 focus:ring-[#f56772] focus:ring-offset-2 dark:focus:ring-offset-neutral-900"
             aria-label="Search users"
           />
           <div className="flex flex-wrap gap-2">
             <select
               value={filterVerified}
               onChange={(e) => setFilterVerified(e.target.value as "all" | "yes" | "no")}
-              className="rounded-xl bg-white dark:bg-neutral-800/80 border border-neutral-200/80 dark:border-neutral-700/60 px-3 py-2.5 text-[14px] text-neutral-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-[#0A84FF]"
+              className="rounded-xl bg-white dark:bg-neutral-800/80 border border-neutral-200/80 dark:border-neutral-700/60 px-3 py-2.5 text-[14px] text-neutral-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-[#f56772]"
               aria-label="Filter by email verified"
             >
               <option value="all">Verified: All</option>
@@ -266,7 +264,7 @@ export default function AdminUsers() {
             <select
               value={filterAdmin}
               onChange={(e) => setFilterAdmin(e.target.value as "all" | "yes" | "no")}
-              className="rounded-xl bg-white dark:bg-neutral-800/80 border border-neutral-200/80 dark:border-neutral-700/60 px-3 py-2.5 text-[14px] text-neutral-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-[#0A84FF]"
+              className="rounded-xl bg-white dark:bg-neutral-800/80 border border-neutral-200/80 dark:border-neutral-700/60 px-3 py-2.5 text-[14px] text-neutral-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-[#f56772]"
               aria-label="Filter by admin"
             >
               <option value="all">Admin: All</option>
@@ -295,7 +293,7 @@ export default function AdminUsers() {
                         checked={allOnPageSelected}
                         onChange={toggleSelectAll}
                         aria-label="Select all on page"
-                        className="rounded border-neutral-300 dark:border-neutral-600 text-[#0A84FF] focus:ring-[#0A84FF]"
+                        className="rounded border-neutral-300 dark:border-neutral-600 text-[#f56772] focus:ring-[#f56772]"
                       />
                     </div>
                   </th>
@@ -375,7 +373,7 @@ export default function AdminUsers() {
                           readOnly
                           tabIndex={-1}
                           aria-label={`Select ${displayName(u)}`}
-                          className="rounded border-neutral-300 dark:border-neutral-600 text-[#0A84FF] focus:ring-[#0A84FF]"
+                          className="rounded border-neutral-300 dark:border-neutral-600 text-[#f56772] focus:ring-[#f56772]"
                         />
                       </div>
                     </td>
@@ -414,7 +412,7 @@ export default function AdminUsers() {
                     </td>
                     <td className="px-4 py-3">
                       {u.is_admin ? (
-                        <span className="inline-flex items-center rounded-full bg-[#0A84FF]/15 px-2 py-0.5 text-[12px] font-medium text-[#0A84FF]">
+                        <span className="inline-flex items-center rounded-full bg-[#f56772]/15 px-2 py-0.5 text-[12px] font-medium text-[#f56772]">
                           Admin
                         </span>
                       ) : (
@@ -445,7 +443,7 @@ export default function AdminUsers() {
                 <button
                   type="button"
                   onClick={clearSelection}
-                  className="text-[14px] text-[#0A84FF] hover:opacity-80"
+                  className="text-[14px] text-[#f56772] hover:opacity-80"
                 >
                   Clear selection
                 </button>
@@ -459,7 +457,7 @@ export default function AdminUsers() {
                     ))}
                     <button
                       type="submit"
-                      className="rounded-lg bg-[#0A84FF]/15 px-3 py-1.5 text-[13px] font-medium text-[#0A84FF] hover:bg-[#0A84FF]/25 transition-colors"
+                      className="rounded-lg bg-[#f56772]/15 px-3 py-1.5 text-[13px] font-medium text-[#f56772] hover:bg-[#f56772]/25 transition-colors"
                     >
                       Resend verification ({selectedUnverified.length})
                     </button>
@@ -474,7 +472,7 @@ export default function AdminUsers() {
                     ))}
                     <button
                       type="submit"
-                      className="rounded-lg bg-[#0A84FF]/15 px-3 py-1.5 text-[13px] font-medium text-[#0A84FF] hover:bg-[#0A84FF]/25 transition-colors"
+                      className="rounded-lg bg-[#f56772]/15 px-3 py-1.5 text-[13px] font-medium text-[#f56772] hover:bg-[#f56772]/25 transition-colors"
                     >
                       Make admin ({selectedNonAdmin.length})
                     </button>
@@ -507,7 +505,7 @@ export default function AdminUsers() {
               <select
                 value={pageSize}
                 onChange={(e) => setPageSize(Number(e.target.value))}
-                className="rounded-lg bg-neutral-100 dark:bg-neutral-700/50 border-0 px-3 py-1.5 text-[14px] text-neutral-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-[#0A84FF]"
+                className="rounded-lg bg-neutral-100 dark:bg-neutral-700/50 border-0 px-3 py-1.5 text-[14px] text-neutral-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-[#f56772]"
                 aria-label="Rows per page"
               >
                 {PAGE_SIZE_OPTIONS.map((n) => (

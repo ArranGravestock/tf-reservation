@@ -20,15 +20,43 @@ npm run dev
 
 Open [http://localhost:5173](http://localhost:5173). You’ll be redirected to login; use “Sign up” to create an account.
 
-### Email verification
+### Email verification (development)
 
-After signup, the app sends a verification email and redirects to “Check your email”. Open the link in the email to verify, then sign in. In development, set `SMTP_USER` and `SMTP_PASS` in `.env` to receive the email (no auto-verify).
+There are two ways to run the email flows locally.
+
+**Without email (default `npm run dev`)** – the app skips sending and prints the
+link to the terminal, e.g.:
+
+```
+[dev] Password reset link: http://localhost:5173/reset-password?token=...
+```
+
+Signup verifies you automatically in dev, so you can create an account and sign
+in without any mail setup.
+
+**With Mailpit (test real emails)** – Mailpit is a local SMTP server with a web
+inbox, so verification, password-reset, and admin resend emails are actually
+sent and viewable in the browser:
+
+```bash
+npm run mail:up    # start Mailpit (SMTP :1025, web UI http://localhost:8025)
+npm run dev:mail   # dev server with SMTP_HOST=localhost SMTP_PORT=1025
+```
+
+Sign up (or request a password reset), then open
+[http://localhost:8025](http://localhost:8025) to read the email and click the
+link. Stop Mailpit with `npm run mail:down`.
+
+Email is controlled by SMTP env vars (see `.env.example`). When `SMTP_HOST` is
+set the app sends via SMTP; otherwise it logs links to the console.
 
 ### Production
 
 - Set **`SESSION_SECRET`** to a long random string (e.g. `openssl rand -hex 32`).
 - Optionally set **`DATABASE_PATH`** (default: `./data/reservation.db`).
-- For real email (verification + password reset), set **SMTP** env vars. Example: **Proton Mail** direct SMTP (paid plan with custom domain)—create an SMTP token in Settings → Proton Mail → IMAP/SMTP → SMTP tokens, then set `SMTP_USER` (your custom-domain address), `SMTP_PASS` (the token). Defaults: `SMTP_HOST=smtp.protonmail.ch`, `SMTP_PORT=587`. See `.env.example`.
+- For real email, set the **`SMTP_*`** / **`MAIL_FROM`** env vars (see `.env.example`)
+  to point at your provider (e.g. Resend, SendGrid, Postmark, SES). The same code
+  path used with Mailpit sends the production emails.
 
 ## Tech
 
@@ -44,3 +72,5 @@ After signup, the app sends a verification email and redirects to “Check your 
 - `npm run build` – Production build
 - `npm run start` – Run production server
 - `npm run typecheck` – TypeScript + route typegen
+- `npm run mail:up` / `npm run mail:down` – Start/stop local Mailpit
+- `npm run dev:mail` – Dev server wired to Mailpit for email testing

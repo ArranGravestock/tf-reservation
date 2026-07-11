@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { Form, Link, useLoaderData, useActionData } from "react-router";
 import type { Route } from "./+types/events.$eventId";
 import { isAdmin, requireAdmin, requireVerifiedUser } from "~/lib/auth.server";
-import { getDb, updateEvent, isEventEnded, isEventStarted, isSaturdayEvent, type Event } from "~/lib/db.server";
+import { getDb, updateEvent, isEventEnded, isEventStarted, type Event } from "~/lib/db";
 import { DEFAULT_PROFILE_EMOJI } from "~/lib/emoji";
 
 export function meta({}: Route.MetaArgs) {
@@ -24,7 +24,6 @@ export async function loader({ request, params }: { request: Request; params: Pr
     .prepare("SELECT id, event_date, created_at, title, description, location, time FROM events WHERE id = ?")
     .get(id) as Event | undefined;
   if (!event) throw new Response("Not found", { status: 404 });
-  if (!isSaturdayEvent(event.event_date)) throw new Response("Not found", { status: 404 });
   const signups = db.prepare(
     `SELECT u.id, u.username, u.first_name, u.last_name, u.profile_emoji, s.created_at as signed_up_at, COALESCE(s.guest_count, 0) as guest_count FROM event_signups s JOIN users u ON u.id = s.user_id WHERE s.event_id = ? ORDER BY s.created_at ASC`
   ).all(id) as { id: number; username: string; first_name: string | null; last_name: string | null; profile_emoji: string | null; signed_up_at: number; guest_count: number }[];
@@ -52,7 +51,6 @@ export async function action({ request, params }: { request: Request; params: Pr
     | { id: number; event_date: string; time: string | null }
     | undefined;
   if (!event) return { error: "Event not found" };
-  if (!isSaturdayEvent(event.event_date)) return { error: "Event not found" };
   const ended = isEventEnded(event);
   const started = isEventStarted(event);
 
@@ -169,7 +167,7 @@ export default function EventDetail() {
     signups.length + signups.reduce((sum, s) => sum + (s.guest_count ?? 0), 0);
 
   const inputClass =
-    "w-full rounded-xl bg-white dark:bg-neutral-700 border border-neutral-200 dark:border-neutral-600 px-3 py-2 text-[15px] text-neutral-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-[#0A84FF]";
+    "w-full rounded-xl bg-white dark:bg-neutral-700 border border-neutral-200 dark:border-neutral-600 px-3 py-2 text-[15px] text-neutral-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-[#f56772]";
 
   return (
     <main className="min-h-screen bg-[#f5f5f7] dark:bg-[#1c1c1e] p-6 pb-24">
@@ -177,7 +175,7 @@ export default function EventDetail() {
         <div className="flex items-center justify-between gap-4 mb-6">
           <Link
             to="/events"
-            className="text-[15px] text-[#0A84FF] hover:opacity-80 inline-block"
+            className="text-[15px] text-[#f56772] hover:opacity-80 inline-block"
           >
             ← Back to sessions
           </Link>
@@ -267,7 +265,7 @@ export default function EventDetail() {
             />
             <button
               type="submit"
-              className="rounded-xl bg-[#0A84FF] px-4 py-2.5 text-[15px] font-medium text-white hover:opacity-90"
+              className="rounded-xl bg-[#f56772] px-4 py-2.5 text-[15px] font-medium text-white hover:opacity-90"
             >
               Save changes
             </button>
@@ -290,11 +288,33 @@ export default function EventDetail() {
         )}
         <div className="mb-8 rounded-2xl overflow-hidden bg-neutral-200/80 dark:bg-neutral-700/60 aspect-[21/9] flex items-center justify-center shadow-inner ring-1 ring-neutral-200/60 dark:ring-neutral-600/40">
           <img
-            src="/clean_455005399.avif"
+            src="/football-session.avif"
             alt=""
             className="h-full w-full object-cover"
-            aria-hidden
+            style={{ display: "none" }}
+            onLoad={(e) => {
+              e.currentTarget.style.display = "block";
+              const fallback = e.currentTarget.nextElementSibling;
+              if (fallback) (fallback as HTMLElement).style.display = "none";
+            }}
+            onError={(e) => {
+              e.currentTarget.style.display = "none";
+              const fallback = e.currentTarget.nextElementSibling;
+              if (fallback) (fallback as HTMLElement).style.display = "block";
+            }}
           />
+          <svg
+            className="w-16 h-16 text-neutral-400 dark:text-neutral-500"
+            fill="none"
+            viewBox="0 0 24 24"
+            stroke="currentColor"
+            strokeWidth={1.5}
+            aria-hidden
+          >
+            <circle cx="12" cy="12" r="10" />
+            <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" />
+            <path d="M2 12h20" />
+          </svg>
         </div>
 
         {actionData?.error && (
@@ -313,7 +333,7 @@ export default function EventDetail() {
               <li>Everyone is welcome — every skill level, gender, sexuality. Just gotta be over 18!</li>
               <li>No one gets upset if we miss a pass… or the ball altogether. Skills vary from old semi-pro players to never kicked a ball. We weren&apos;t fibbing when we said inclusive.</li>
               <li>Hosted at the southern side of Wavertree Botanic Gardens</li>
-              <li>Follow us on <a href="https://www.facebook.com/TerribleFC." target="_blank" rel="noopener noreferrer" className="text-[#0A84FF] hover:underline">Facebook</a> and <a href="https://www.instagram.com/terrible_football/?hl=en" target="_blank" rel="noopener noreferrer" className="text-[#0A84FF] hover:underline">Instagram</a> — tons of info on there!</li>
+              <li>Follow us on <a href="https://www.facebook.com/TerribleFC." target="_blank" rel="noopener noreferrer" className="text-[#f56772] hover:underline">Facebook</a> and <a href="https://www.instagram.com/terrible_football/?hl=en" target="_blank" rel="noopener noreferrer" className="text-[#f56772] hover:underline">Instagram</a> — tons of info on there!</li>
             </ul>
           </div>
 
@@ -334,7 +354,7 @@ export default function EventDetail() {
               Frequently asked questions
             </h2>
             <p className="text-[15px] text-neutral-600 dark:text-neutral-300 mb-2">
-              <Link to="/faq" className="text-[#0A84FF] hover:underline">
+              <Link to="/faq" className="text-[#f56772] hover:underline">
                 View our FAQ
               </Link>
             </p>
@@ -359,7 +379,7 @@ export default function EventDetail() {
               WhatsApp group
             </h2>
             <p className="text-[15px] text-neutral-600 dark:text-neutral-300 leading-relaxed mb-2">
-              <a href="https://chat.whatsapp.com/" target="_blank" rel="noopener noreferrer" className="text-[#0A84FF] hover:underline">
+              <a href="https://chat.whatsapp.com/" target="_blank" rel="noopener noreferrer" className="text-[#f56772] hover:underline">
                 Join the WhatsApp group
               </a>
             </p>
@@ -389,7 +409,7 @@ export default function EventDetail() {
               href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(location)}`}
               target="_blank"
               rel="noopener noreferrer"
-              className="inline-block mt-2 text-[15px] text-[#0A84FF] hover:underline"
+              className="inline-block mt-2 text-[15px] text-[#f56772] hover:underline"
             >
               Open in Google Maps
             </a>
@@ -427,7 +447,7 @@ export default function EventDetail() {
                   placeholder="Search by name..."
                   value={signupSearch}
                   onChange={(e) => setSignupSearch(e.target.value)}
-                  className="w-full rounded-xl bg-neutral-100 dark:bg-neutral-700/50 border-0 px-4 py-2.5 text-[15px] text-neutral-900 dark:text-white placeholder-neutral-400 focus:outline-none focus:ring-2 focus:ring-[#0A84FF]"
+                  className="w-full rounded-xl bg-neutral-100 dark:bg-neutral-700/50 border-0 px-4 py-2.5 text-[15px] text-neutral-900 dark:text-white placeholder-neutral-400 focus:outline-none focus:ring-2 focus:ring-[#f56772]"
                 />
               </div>
               <ul className="overflow-y-auto flex-1 min-h-0 p-4 pt-0 space-y-2">
@@ -504,7 +524,7 @@ export default function EventDetail() {
                       onClick={() => setAttendanceGoing(true)}
                       className={`flex-1 py-3.5 text-[15px] font-medium transition-colors ${
                         attendanceGoing
-                          ? "bg-[#0A84FF] text-white"
+                          ? "bg-[#f56772] text-white"
                           : "text-neutral-600 dark:text-neutral-400 hover:bg-neutral-200/80 dark:hover:bg-neutral-600/80"
                       }`}
                     >
@@ -515,7 +535,7 @@ export default function EventDetail() {
                       onClick={() => setAttendanceGoing(false)}
                       className={`flex-1 py-3.5 text-[15px] font-medium transition-colors ${
                         !attendanceGoing
-                          ? "bg-[#0A84FF] text-white"
+                          ? "bg-[#f56772] text-white"
                           : "text-neutral-600 dark:text-neutral-400 hover:bg-neutral-200/80 dark:hover:bg-neutral-600/80"
                       }`}
                     >
@@ -613,7 +633,7 @@ export default function EventDetail() {
                   <input type="hidden" name="guest_count" value={attendanceGoing ? guestCount : 0} />
                   <button
                     type="submit"
-                    className="rounded-xl bg-[#0A84FF] px-4 py-2.5 text-[15px] font-medium text-white hover:opacity-90"
+                    className="rounded-xl bg-[#f56772] px-4 py-2.5 text-[15px] font-medium text-white hover:opacity-90"
                   >
                     {signupConfirmIsEditMode
                       ? attendanceGoing
@@ -644,10 +664,11 @@ export default function EventDetail() {
                 {signups.slice(0, 3).map((s) => (
                   <span
                     key={s.id}
-                    className="flex shrink-0 items-center justify-center w-7 h-7 min-w-7 min-h-7 rounded-full bg-white dark:bg-neutral-700 border-2 border-white dark:border-neutral-900 text-[13px] ring-1 ring-neutral-200/80 dark:ring-neutral-600/80 overflow-hidden leading-none"
+                    className="inline-grid shrink-0 place-items-center rounded-full bg-white dark:bg-neutral-700 border-2 border-white dark:border-neutral-900 text-[13px] ring-1 ring-neutral-200/80 dark:ring-neutral-600/80 overflow-hidden leading-none"
+                    style={{ width: 28, height: 28, minWidth: 28, minHeight: 28, padding: 0, boxSizing: "border-box" }}
                     title={signupDisplayName(s)}
                   >
-                    <span className="inline-flex items-center justify-center leading-none">{s.profile_emoji || DEFAULT_PROFILE_EMOJI}</span>
+                    {s.profile_emoji || DEFAULT_PROFILE_EMOJI}
                   </span>
                 ))}
                 {signups.length > 3 && (
@@ -659,7 +680,7 @@ export default function EventDetail() {
                   </span>
                 )}
               </span>
-              <span className="text-[#0A84FF] hover:opacity-80">
+              <span className="text-[#f56772] hover:opacity-80">
                 {totalAttendees} registered
               </span>
             </button>
@@ -680,7 +701,7 @@ export default function EventDetail() {
                     setGuestCount(currentUserGuestCount);
                     setSignupConfirmModalOpen(true);
                   }}
-                  className="text-[15px] font-medium text-[#0A84FF] hover:underline"
+                  className="text-[15px] font-medium text-[#f56772] hover:underline"
                 >
                   Edit attendance
                 </button>
@@ -694,7 +715,7 @@ export default function EventDetail() {
                 setGuestCount(0);
                 setSignupConfirmModalOpen(true);
               }}
-              className="rounded-xl bg-[#0A84FF] px-5 py-2.5 text-[15px] font-medium text-white hover:opacity-90 active:opacity-80 transition-opacity"
+              className="rounded-xl bg-[#f56772] px-5 py-2.5 text-[15px] font-medium text-white hover:opacity-90 active:opacity-80 transition-opacity"
             >
               Sign up for this session
             </button>

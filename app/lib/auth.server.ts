@@ -1,8 +1,9 @@
 import bcrypt from "bcryptjs";
 import crypto from "node:crypto";
 import { redirect } from "react-router";
-import { getDb, type User } from "./db.server";
+import { getDb, type User } from "./db";
 import { getSession, commitSession, destroySession } from "./session.server";
+import { isEmailConfigured, sendPasswordResetEmail } from "./email.server";
 
 const SALT_ROUNDS = 10;
 
@@ -39,7 +40,12 @@ export async function requireUserId(request: Request): Promise<number> {
 export async function requireVerifiedUser(request: Request): Promise<User> {
   const user = await getUser(request);
   if (!user) throw redirect("/login");
-  if (!user.email_verified) throw redirect("/verify-email");
+  // Allow access once the account has ever been verified. Changing email resets
+  // `email_verified` (and triggers a re-verification email) but must not lock a
+  // previously verified user out of browsing or signing up.
+  if (!user.email_verified && !(user as { ever_verified?: number }).ever_verified) {
+    throw redirect("/verify-email");
+  }
   return user;
 }
 
@@ -111,8 +117,7 @@ export async function requestPasswordReset(email: string): Promise<{ error?: str
   );
   const baseUrl = process.env.ORIGIN ?? "http://localhost:5173";
   const resetUrl = `${baseUrl}/reset-password?token=${token}`;
-  if (process.env.NODE_ENV === "production") {
-    const { sendPasswordResetEmail } = await import("./email.server");
+  if (isEmailConfigured()) {
     await sendPasswordResetEmail(user.email, resetUrl);
   } else {
     console.log("[dev] Password reset link:", resetUrl);

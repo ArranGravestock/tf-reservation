@@ -1,20 +1,20 @@
 import { useState } from "react";
-import { Form, Link, redirect, useActionData, useSearchParams } from "react-router";
+import { Form, redirect, useActionData, useSearchParams } from "react-router";
 import type { Route } from "./+types/login";
+import { getUserId } from "~/lib/auth.server";
+import { login } from "~/lib/auth.server";
 
 export function meta({}: Route.MetaArgs) {
   return [{ title: "Login – Terrible Football Liverpool" }];
 }
 
 export async function loader({ request }: { request: Request }) {
-  const { getUser } = await import("~/lib/auth.server");
-  const user = await getUser(request);
-  if (user?.email_verified) return redirect("/events");
+  const userId = await getUserId(request);
+  if (userId) return redirect("/events");
   return null;
 }
 
 export async function action({ request }: { request: Request }) {
-  const { login } = await import("~/lib/auth.server");
   const formData = await request.formData();
   const username = String(formData.get("username") ?? "").trim();
   const password = String(formData.get("password") ?? "");
@@ -76,7 +76,7 @@ export default function Login() {
               type="text"
               autoComplete="username"
               required
-              className="w-full rounded-xl bg-neutral-100 dark:bg-neutral-700/50 border-0 px-4 py-3 text-[17px] text-neutral-900 dark:text-white placeholder-neutral-400 focus:outline-none focus:ring-2 focus:ring-[#0A84FF] focus:ring-offset-2 dark:focus:ring-offset-neutral-800"
+              className="w-full rounded-xl bg-neutral-100 dark:bg-neutral-700/50 border-0 px-4 py-3 text-[17px] text-neutral-900 dark:text-white placeholder-neutral-400 focus:outline-none focus:ring-2 focus:ring-[#f56772] focus:ring-offset-2 dark:focus:ring-offset-neutral-800"
               placeholder="Your username"
             />
           </div>
@@ -85,7 +85,7 @@ export default function Login() {
               <label htmlFor="password" className="text-[13px] font-medium text-neutral-500 dark:text-neutral-400">
                 Password
               </label>
-              <a href="/forgot-password" className="text-[13px] text-[#0A84FF] hover:underline shrink-0">
+              <a href="/forgot-password" className="text-[13px] text-[#f56772] hover:underline shrink-0">
                 Forgot password?
               </a>
             </div>
@@ -97,7 +97,7 @@ export default function Login() {
                 autoComplete="current-password"
                 required
                 placeholder="Your password"
-                className="w-full rounded-xl bg-neutral-100 dark:bg-neutral-700/50 border-0 px-4 pr-12 py-3 text-[17px] text-neutral-900 dark:text-white placeholder-neutral-400 focus:outline-none focus:ring-2 focus:ring-[#0A84FF] focus:ring-offset-2 dark:focus:ring-offset-neutral-800"
+                className="w-full rounded-xl bg-neutral-100 dark:bg-neutral-700/50 border-0 px-4 pr-12 py-3 text-[17px] text-neutral-900 dark:text-white placeholder-neutral-400 focus:outline-none focus:ring-2 focus:ring-[#f56772] focus:ring-offset-2 dark:focus:ring-offset-neutral-800"
               />
               <button
                 type="button"
@@ -113,15 +113,15 @@ export default function Login() {
           </div>
           <button
             type="submit"
-            className="w-full rounded-xl bg-[#0A84FF] px-4 py-3 text-[17px] font-medium text-white hover:opacity-90 active:opacity-80 transition-opacity"
+            className="w-full rounded-xl bg-[#f56772] px-4 py-3 text-[17px] font-medium text-white hover:opacity-90 active:opacity-80 transition-opacity"
           >
             Sign in
           </button>
           <p className="text-center text-[15px] text-neutral-500 dark:text-neutral-400">
             Don&apos;t have an account?{" "}
-            <Link to="/signup" className="text-[#0A84FF] hover:underline">
+            <a href="/signup" className="text-[#f56772] hover:underline">
               Sign up
-            </Link>
+            </a>
           </p>
         </Form>
       </div>

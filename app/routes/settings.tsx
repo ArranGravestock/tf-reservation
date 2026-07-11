@@ -1,7 +1,9 @@
 import { Form, Link, redirect, useActionData, useLoaderData, useNavigate, useSearchParams } from "react-router";
 import { useState, useEffect } from "react";
 import type { Route } from "./+types/settings";
-import { requireVerifiedUser, updateUserProfile } from "~/lib/auth.server";
+import { createVerificationToken, requireVerifiedUser, updateUserProfile } from "~/lib/auth.server";
+import { getDb } from "~/lib/db";
+import { isEmailConfigured, sendVerificationEmail } from "~/lib/email.server";
 import { ANIMAL_EMOJIS, DEFAULT_PROFILE_EMOJI } from "~/lib/emoji";
 
 export function meta({}: Route.MetaArgs) {
@@ -49,15 +51,38 @@ export async function action({ request }: { request: Request }) {
     const email = String(formData.get("email") ?? "").trim().toLowerCase();
     const currentPassword = String(formData.get("currentPassword") ?? "");
     const emailChanging = email !== (user.email ?? "").toLowerCase();
-    if (emailChanging && !currentPassword.trim()) {
+    if (!email) {
+      return { intent: "email", error: "Email is required." };
+    }
+    if (!emailChanging) {
+      return { intent: "email", error: "Enter a different email address to change it." };
+    }
+    if (!currentPassword.trim()) {
       return { intent: "email", error: "Current password is required to change email." };
     }
     const error = await updateUserProfile(user.id, {
-      email: email || undefined,
-      currentPassword: emailChanging ? currentPassword : undefined,
+      email,
+      currentPassword,
     });
     if (error) return { intent: "email", error: error.error };
-    return redirect("/settings?updated=email");
+
+    // Email changed: the account is now unverified with the token cleared.
+    // Issue a fresh verification token and send the verification email so the
+    // user can confirm their new address (mirrors the signup flow).
+    const { token, expires } = createVerificationToken();
+    const db = getDb();
+    db.prepare(
+      "UPDATE users SET verification_token = ?, verification_expires = ? WHERE id = ?"
+    ).run(token, Math.floor(expires / 1000), user.id);
+    const verifyUrl = `${new URL(request.url).origin}/verify-email?token=${token}`;
+    if (isEmailConfigured()) {
+      await sendVerificationEmail(email, verifyUrl, user.username);
+      return redirect("/verify-email?sent=1");
+    }
+    if (process.env.NODE_ENV !== "production") {
+      return redirect(`/verify-email?token=${token}`);
+    }
+    return redirect("/verify-email?sent=1");
   }
 
   if (intent === "password") {
@@ -76,9 +101,6 @@ export async function action({ request }: { request: Request }) {
     }
     if (newPassword.length === 0) {
       return redirect("/settings");
-    }
-    if (newPassword === currentPassword) {
-      return { intent: "password", error: "New password must be different from your current password." };
     }
     const error = await updateUserProfile(user.id, {
       currentPassword,
@@ -103,12 +125,6 @@ export default function Settings() {
       ? user.profileEmoji
       : DEFAULT_PROFILE_EMOJI;
   const [selectedEmoji, setSelectedEmoji] = useState(resolvedInitialEmoji);
-  const [showCurrentPassword, setShowCurrentPassword] = useState(false);
-  const [showNewPassword, setShowNewPassword] = useState(false);
-  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
-  const [passwordCurrent, setPasswordCurrent] = useState("");
-  const [passwordNew, setPasswordNew] = useState("");
-  const [passwordConfirm, setPasswordConfirm] = useState("");
   const fullName = [user.firstName, user.lastName].filter(Boolean).join(" ") || user.username;
   const navigate = useNavigate();
 
@@ -119,20 +135,12 @@ export default function Settings() {
     }
   }, [updatedProfile, navigate]);
 
-  useEffect(() => {
-    if (updatedPassword) {
-      setPasswordCurrent("");
-      setPasswordNew("");
-      setPasswordConfirm("");
-    }
-  }, [updatedPassword]);
-
   return (
     <main className="min-h-screen bg-[#f5f5f7] dark:bg-[#1c1c1e] p-6 pb-12">
       <div className="max-w-xl mx-auto">
         <Link
           to="/events"
-          className="text-[15px] text-[#0A84FF] hover:opacity-80 mb-6 inline-block"
+          className="text-[15px] text-[#f56772] hover:opacity-80 mb-6 inline-block"
         >
           ← Back to sessions
         </Link>
@@ -216,7 +224,7 @@ export default function Settings() {
                   onClick={() => setSelectedEmoji(emoji)}
                   className={`w-10 h-10 rounded-xl text-xl flex items-center justify-center transition-colors ${
                     selectedEmoji === emoji
-                      ? "bg-[#0A84FF]/15 dark:bg-[#0A84FF]/20 ring-2 ring-[#0A84FF] ring-offset-2 dark:ring-offset-neutral-800"
+                      ? "bg-[#f56772]/15 dark:bg-[#f56772]/20 ring-2 ring-[#f56772] ring-offset-2 dark:ring-offset-neutral-800"
                       : "bg-neutral-100 dark:bg-neutral-700/50 hover:bg-neutral-200 dark:hover:bg-neutral-600/50"
                   }`}
                   title={`Choose ${emoji}`}
@@ -241,7 +249,7 @@ export default function Settings() {
               autoComplete="given-name"
               required
               defaultValue={user.firstName ?? ""}
-              className="w-full rounded-xl bg-neutral-100 dark:bg-neutral-700/50 border-0 px-4 py-3 text-[17px] text-neutral-900 dark:text-white placeholder-neutral-400 focus:outline-none focus:ring-2 focus:ring-[#0A84FF] focus:ring-offset-2 dark:focus:ring-offset-neutral-800"
+              className="w-full rounded-xl bg-neutral-100 dark:bg-neutral-700/50 border-0 px-4 py-3 text-[17px] text-neutral-900 dark:text-white placeholder-neutral-400 focus:outline-none focus:ring-2 focus:ring-[#f56772] focus:ring-offset-2 dark:focus:ring-offset-neutral-800"
               placeholder="Your first name"
             />
           </div>
@@ -257,7 +265,7 @@ export default function Settings() {
               autoComplete="family-name"
               required
               defaultValue={user.lastName ?? ""}
-              className="w-full rounded-xl bg-neutral-100 dark:bg-neutral-700/50 border-0 px-4 py-3 text-[17px] text-neutral-900 dark:text-white placeholder-neutral-400 focus:outline-none focus:ring-2 focus:ring-[#0A84FF] focus:ring-offset-2 dark:focus:ring-offset-neutral-800"
+              className="w-full rounded-xl bg-neutral-100 dark:bg-neutral-700/50 border-0 px-4 py-3 text-[17px] text-neutral-900 dark:text-white placeholder-neutral-400 focus:outline-none focus:ring-2 focus:ring-[#f56772] focus:ring-offset-2 dark:focus:ring-offset-neutral-800"
               placeholder="Your last name"
             />
           </div>
@@ -315,7 +323,7 @@ export default function Settings() {
               type="email"
               autoComplete="email"
               defaultValue={user.email}
-              className="w-full rounded-xl bg-neutral-100 dark:bg-neutral-700/50 border-0 px-4 py-3 text-[17px] text-neutral-900 dark:text-white placeholder-neutral-400 focus:outline-none focus:ring-2 focus:ring-[#0A84FF] focus:ring-offset-2 dark:focus:ring-offset-neutral-800"
+              className="w-full rounded-xl bg-neutral-100 dark:bg-neutral-700/50 border-0 px-4 py-3 text-[17px] text-neutral-900 dark:text-white placeholder-neutral-400 focus:outline-none focus:ring-2 focus:ring-[#f56772] focus:ring-offset-2 dark:focus:ring-offset-neutral-800"
             />
             <p className="mt-1.5 text-[13px] text-neutral-500 dark:text-neutral-400">
               If you change your email, you’ll need to verify it again.
@@ -331,8 +339,9 @@ export default function Settings() {
               name="currentPassword"
               type="password"
               autoComplete="current-password"
-              className="w-full rounded-xl bg-neutral-100 dark:bg-neutral-700/50 border-0 px-4 py-3 text-[17px] text-neutral-900 dark:text-white placeholder-neutral-400 focus:outline-none focus:ring-2 focus:ring-[#0A84FF] focus:ring-offset-2 dark:focus:ring-offset-neutral-800"
-              placeholder="Required when changing email"
+              required
+              className="w-full rounded-xl bg-neutral-100 dark:bg-neutral-700/50 border-0 px-4 py-3 text-[17px] text-neutral-900 dark:text-white placeholder-neutral-400 focus:outline-none focus:ring-2 focus:ring-[#f56772] focus:ring-offset-2 dark:focus:ring-offset-neutral-800"
+              placeholder="Current password"
             />
           </div>
 
@@ -366,85 +375,43 @@ export default function Settings() {
             <label htmlFor="passwordCurrentPassword" className="block text-[13px] font-medium text-neutral-500 dark:text-neutral-400 mb-1.5">
               Current password
             </label>
-            <div className="relative">
-              <input
-                id="passwordCurrentPassword"
-                name="currentPassword"
-                type={showCurrentPassword ? "text" : "password"}
-                value={passwordCurrent}
-                onChange={(e) => setPasswordCurrent(e.target.value)}
-                autoComplete="current-password"
-                className="w-full rounded-xl bg-neutral-100 dark:bg-neutral-700/50 border-0 px-4 pr-12 py-3 text-[17px] text-neutral-900 dark:text-white placeholder-neutral-400 focus:outline-none focus:ring-2 focus:ring-[#0A84FF] focus:ring-offset-2 dark:focus:ring-offset-neutral-800"
-                placeholder="Current password"
-              />
-              <button
-                type="button"
-                onClick={() => setShowCurrentPassword((p) => !p)}
-                className="absolute right-3 top-1/2 -translate-y-1/2 p-1.5 rounded-lg text-neutral-500 hover:text-neutral-700 dark:text-neutral-400 dark:hover:text-neutral-200 hover:bg-neutral-200/60 dark:hover:bg-neutral-600/50 transition-colors"
-                aria-label={showCurrentPassword ? "Hide password" : "Show password"}
-              >
-                <span className="text-lg leading-none" aria-hidden>
-                  {showCurrentPassword ? "🙈" : "👁️"}
-                </span>
-              </button>
-            </div>
+            <input
+              id="passwordCurrentPassword"
+              name="currentPassword"
+              type="password"
+              autoComplete="current-password"
+              className="w-full rounded-xl bg-neutral-100 dark:bg-neutral-700/50 border-0 px-4 py-3 text-[17px] text-neutral-900 dark:text-white placeholder-neutral-400 focus:outline-none focus:ring-2 focus:ring-[#f56772] focus:ring-offset-2 dark:focus:ring-offset-neutral-800"
+              placeholder="Current password"
+            />
           </div>
 
           <div>
             <label htmlFor="accountNewPassword" className="block text-[13px] font-medium text-neutral-500 dark:text-neutral-400 mb-1.5">
               New password
             </label>
-            <div className="relative">
-              <input
-                id="accountNewPassword"
-                name="newPassword"
-                type={showNewPassword ? "text" : "password"}
-                value={passwordNew}
-                onChange={(e) => setPasswordNew(e.target.value)}
-                autoComplete="new-password"
-                minLength={8}
-                className="w-full rounded-xl bg-neutral-100 dark:bg-neutral-700/50 border-0 px-4 pr-12 py-3 text-[17px] text-neutral-900 dark:text-white placeholder-neutral-400 focus:outline-none focus:ring-2 focus:ring-[#0A84FF] focus:ring-offset-2 dark:focus:ring-offset-neutral-800"
-                placeholder="At least 8 characters"
-              />
-              <button
-                type="button"
-                onClick={() => setShowNewPassword((p) => !p)}
-                className="absolute right-3 top-1/2 -translate-y-1/2 p-1.5 rounded-lg text-neutral-500 hover:text-neutral-700 dark:text-neutral-400 dark:hover:text-neutral-200 hover:bg-neutral-200/60 dark:hover:bg-neutral-600/50 transition-colors"
-                aria-label={showNewPassword ? "Hide password" : "Show password"}
-              >
-                <span className="text-lg leading-none" aria-hidden>
-                  {showNewPassword ? "🙈" : "👁️"}
-                </span>
-              </button>
-            </div>
+            <input
+              id="accountNewPassword"
+              name="newPassword"
+              type="password"
+              autoComplete="new-password"
+              minLength={8}
+              className="w-full rounded-xl bg-neutral-100 dark:bg-neutral-700/50 border-0 px-4 py-3 text-[17px] text-neutral-900 dark:text-white placeholder-neutral-400 focus:outline-none focus:ring-2 focus:ring-[#f56772] focus:ring-offset-2 dark:focus:ring-offset-neutral-800"
+              placeholder="At least 8 characters"
+            />
           </div>
 
           <div>
             <label htmlFor="accountConfirmPassword" className="block text-[13px] font-medium text-neutral-500 dark:text-neutral-400 mb-1.5">
               Confirm new password
             </label>
-            <div className="relative">
-              <input
-                id="accountConfirmPassword"
-                name="confirmPassword"
-                type={showConfirmPassword ? "text" : "password"}
-                value={passwordConfirm}
-                onChange={(e) => setPasswordConfirm(e.target.value)}
-                autoComplete="new-password"
-                placeholder="Confirm your new password"
-                className="w-full rounded-xl bg-neutral-100 dark:bg-neutral-700/50 border-0 px-4 pr-12 py-3 text-[17px] text-neutral-900 dark:text-white placeholder-neutral-400 focus:outline-none focus:ring-2 focus:ring-[#0A84FF] focus:ring-offset-2 dark:focus:ring-offset-neutral-800"
-              />
-              <button
-                type="button"
-                onClick={() => setShowConfirmPassword((p) => !p)}
-                className="absolute right-3 top-1/2 -translate-y-1/2 p-1.5 rounded-lg text-neutral-500 hover:text-neutral-700 dark:text-neutral-400 dark:hover:text-neutral-200 hover:bg-neutral-200/60 dark:hover:bg-neutral-600/50 transition-colors"
-                aria-label={showConfirmPassword ? "Hide password" : "Show password"}
-              >
-                <span className="text-lg leading-none" aria-hidden>
-                  {showConfirmPassword ? "🙈" : "👁️"}
-                </span>
-              </button>
-            </div>
+            <input
+              id="accountConfirmPassword"
+              name="confirmPassword"
+              type="password"
+              autoComplete="new-password"
+              placeholder="Confirm your new password"
+              className="w-full rounded-xl bg-neutral-100 dark:bg-neutral-700/50 border-0 px-4 py-3 text-[17px] text-neutral-900 dark:text-white placeholder-neutral-400 focus:outline-none focus:ring-2 focus:ring-[#f56772] focus:ring-offset-2 dark:focus:ring-offset-neutral-800"
+            />
           </div>
 
           <button

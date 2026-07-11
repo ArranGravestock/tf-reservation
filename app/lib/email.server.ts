@@ -1,58 +1,109 @@
-import nodemailer from "nodemailer";
+import nodemailer, { type Transporter } from "nodemailer";
 
-/** True if SMTP is configured (we can send mail). */
+/**
+ * Email sending.
+ *
+ * In local development, run Mailpit (see docker-compose.yml) and point the app
+ * at it with SMTP_HOST/SMTP_PORT. Caught emails show up at http://localhost:8025.
+ *
+ * If no SMTP host is configured we fall back to logging the message to the
+ * console, so the app still works without any mail setup.
+ */
+
+const SMTP_HOST = process.env.SMTP_HOST;
+const SMTP_PORT = process.env.SMTP_PORT ? parseInt(process.env.SMTP_PORT, 10) : 1025;
+const SMTP_USER = process.env.SMTP_USER;
+const SMTP_PASS = process.env.SMTP_PASS;
+const SMTP_SECURE = process.env.SMTP_SECURE === "true"; // true for 465, false for 1025/587
+const MAIL_FROM = process.env.MAIL_FROM ?? "Terrible Football Liverpool <no-reply@tf-liverpool.local>";
+
+let transporter: Transporter | null | undefined;
+
+/** Returns true when an SMTP server (e.g. Mailpit) is configured. */
 export function isEmailConfigured(): boolean {
-  return !!(process.env.SMTP_USER && process.env.SMTP_PASS);
+  return Boolean(SMTP_HOST);
 }
 
-/** SMTP config for sending (e.g. Proton Mail direct SMTP: smtp.protonmail.ch:587). */
-function getTransporter() {
-  const host = process.env.SMTP_HOST ?? "smtp.protonmail.ch";
-  const port = parseInt(process.env.SMTP_PORT ?? "587", 10);
-  const user = process.env.SMTP_USER;
-  const pass = process.env.SMTP_PASS;
-  const secure = process.env.SMTP_SECURE === "true";
-
-  if (!user || !pass) {
-    throw new Error(
-      "SMTP_USER and SMTP_PASS must be set to send email (e.g. Proton Mail custom-domain address and SMTP token)."
-    );
+function getTransporter(): Transporter | null {
+  if (transporter !== undefined) return transporter;
+  if (!SMTP_HOST) {
+    transporter = null;
+    return null;
   }
-
-  return nodemailer.createTransport({
-    host,
-    port,
-    secure,
-    auth: { user, pass },
+  transporter = nodemailer.createTransport({
+    host: SMTP_HOST,
+    port: SMTP_PORT,
+    secure: SMTP_SECURE,
+    auth: SMTP_USER ? { user: SMTP_USER, pass: SMTP_PASS ?? "" } : undefined,
   });
+  return transporter;
 }
 
-/** From address: SMTP_FROM or SMTP_USER. */
-function getFrom(): string {
-  const from = process.env.SMTP_FROM ?? process.env.SMTP_USER;
-  const name = process.env.SMTP_FROM_NAME ?? "Terrible Football Liverpool";
-  if (!from) throw new Error("SMTP_FROM or SMTP_USER must be set.");
-  return name ? `"${name}" <${from}>` : from;
+export interface SendMailOptions {
+  to: string;
+  subject: string;
+  text: string;
+  html?: string;
 }
 
-export async function sendVerificationEmail(to: string, verifyUrl: string): Promise<void> {
-  const transporter = getTransporter();
-  await transporter.sendMail({
-    from: getFrom(),
+export async function sendMail({ to, subject, text, html }: SendMailOptions): Promise<void> {
+  const t = getTransporter();
+  if (!t) {
+    console.log(`[email] SMTP not configured; would send to ${to}: ${subject}\n${text}`);
+    return;
+  }
+  await t.sendMail({ from: MAIL_FROM, to, subject, text, html });
+}
+
+function layout(heading: string, bodyHtml: string): string {
+  return `<!doctype html>
+<html>
+  <body style="margin:0;background:#f5f5f7;padding:24px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:#1c1c1e;">
+    <div style="max-width:480px;margin:0 auto;background:#ffffff;border-radius:16px;padding:32px;">
+      <h1 style="font-size:20px;margin:0 0 16px;">${heading}</h1>
+      ${bodyHtml}
+    </div>
+  </body>
+</html>`;
+}
+
+function button(url: string, label: string): string {
+  return `<a href="${url}" style="display:inline-block;background:#f56772;color:#ffffff;text-decoration:none;padding:12px 20px;border-radius:12px;font-weight:500;">${label}</a>`;
+}
+
+function escapeHtml(s: string): string {
+  return s
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+export async function sendVerificationEmail(to: string, verifyUrl: string, username: string): Promise<void> {
+  await sendMail({
     to,
     subject: "Verify your email – Terrible Football Liverpool",
-    text: `Please verify your email by opening this link:\n\n${verifyUrl}\n\nIf you didn't create an account, you can ignore this email.`,
-    html: `<!DOCTYPE html><html><body style="font-family:sans-serif;max-width:480px;"><p>Please verify your email by opening this link:</p><p><a href="${verifyUrl}">${verifyUrl}</a></p><p>If you didn't create an account, you can ignore this email.</p></body></html>`,
+    text: `Hi ${username},\n\nPlease verify your email to finish setting up your account:\n\n${verifyUrl}\n\nThis link expires in 24 hours.`,
+    html: layout(
+      `Terrible Football <span style="background:linear-gradient(90deg,#f56772,#8b1e24);-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent;color:#8b1e24;">Liverpool</span>`,
+      `<p style="font-size:15px;line-height:1.5;">Hi <strong>${escapeHtml(username)}</strong>,</p>
+       <p style="font-size:15px;line-height:1.5;">Please verify your email to finish setting up your account.</p>
+       <p style="margin:24px 0;text-align:center;">${button(verifyUrl, "Verify email")}</p>
+       <p style="font-size:13px;color:#8e8e93;word-break:break-all;overflow-wrap:anywhere;">This link expires in 24 hours. If the button doesn't work, press or copy this link: <a href="${verifyUrl}" style="color:#f56772;">${verifyUrl}</a></p>`
+    ),
   });
 }
 
 export async function sendPasswordResetEmail(to: string, resetUrl: string): Promise<void> {
-  const transporter = getTransporter();
-  await transporter.sendMail({
-    from: getFrom(),
+  await sendMail({
     to,
     subject: "Reset your password – Terrible Football Liverpool",
-    text: `Reset your password by opening this link:\n\n${resetUrl}\n\nThis link expires in 1 hour. If you didn't request a reset, you can ignore this email.`,
-    html: `<!DOCTYPE html><html><body style="font-family:sans-serif;max-width:480px;"><p>Reset your password by opening this link:</p><p><a href="${resetUrl}">${resetUrl}</a></p><p>This link expires in 1 hour. If you didn't request a reset, you can ignore this email.</p></body></html>`,
+    text: `We received a request to reset your password. Use this link to choose a new one:\n\n${resetUrl}\n\nThis link expires in 1 hour. If you didn't request this, you can ignore this email.`,
+    html: layout(
+      "Reset your password",
+      `<p style="font-size:15px;line-height:1.5;">We received a request to reset your password. Choose a new one below.</p>
+       <p style="margin:24px 0;">${button(resetUrl, "Reset password")}</p>
+       <p style="font-size:13px;color:#8e8e93;word-break:break-all;overflow-wrap:anywhere;">This link expires in 1 hour. If you didn't request this, you can safely ignore this email.</p>`
+    ),
   });
 }

@@ -1,8 +1,10 @@
 import { useState } from "react";
 import { Form, redirect, useActionData } from "react-router";
 import type { Route } from "./+types/signup";
-import { getUser, hashPassword, createVerificationToken } from "~/lib/auth.server";
-import { getDb } from "~/lib/db.server";
+import { getUserId } from "~/lib/auth.server";
+import { hashPassword, createVerificationToken } from "~/lib/auth.server";
+import { getDb } from "~/lib/db";
+import { isEmailConfigured, sendVerificationEmail } from "~/lib/email.server";
 import { ANIMAL_EMOJIS, DEFAULT_PROFILE_EMOJI, isAllowedProfileEmoji } from "~/lib/emoji";
 
 export function meta({}: Route.MetaArgs) {
@@ -10,114 +12,90 @@ export function meta({}: Route.MetaArgs) {
 }
 
 export async function loader({ request }: { request: Request }) {
-  const user = await getUser(request);
-  if (user?.email_verified) return redirect("/events");
-  if (user && !user.email_verified) return redirect("/verify-email");
+  const userId = await getUserId(request);
+  if (userId) return redirect("/events");
   return null;
 }
 
 export async function action({ request }: { request: Request }) {
+  const formData = await request.formData();
+  const username = String(formData.get("username") ?? "").trim();
+  const firstName = String(formData.get("firstName") ?? "").trim();
+  const lastName = String(formData.get("lastName") ?? "").trim();
+  const email = String(formData.get("email") ?? "").trim().toLowerCase();
+  const password = String(formData.get("password") ?? "");
+  const confirm = String(formData.get("confirmPassword") ?? "");
+  const rawEmoji = String(formData.get("profileEmoji") ?? "").trim();
+  const profileEmoji = isAllowedProfileEmoji(rawEmoji) ? rawEmoji.slice(0, 8) : DEFAULT_PROFILE_EMOJI;
+
+  if (!username || !firstName || !lastName || !email || !password) {
+    return { error: "All fields are required." };
+  }
+  if (username.length < 2) {
+    return { error: "Username must be at least 2 characters." };
+  }
+  if (firstName.length < 1) {
+    return { error: "Please enter your first name." };
+  }
+  if (lastName.length < 1) {
+    return { error: "Please enter your last name." };
+  }
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    return { error: "Please enter a valid email address." };
+  }
+  if (password.length < 8) {
+    return { error: "Password must be at least 8 characters." };
+  }
+  if (password !== confirm) {
+    return { error: "Passwords do not match." };
+  }
+
+  const db = getDb();
+  if (db.prepare("SELECT 1 FROM users WHERE LOWER(username) = LOWER(?)").get(username)) {
+    return { error: "Username is already taken." };
+  }
+  if (db.prepare("SELECT 1 FROM users WHERE LOWER(email) = ?").get(email)) {
+    return { error: "An account with this email already exists." };
+  }
+
+  const passwordHash = await hashPassword(password);
+  const { token, expires } = createVerificationToken();
   try {
-    const formData = await request.formData();
-    const username = String(formData.get("username") ?? "").trim();
-    const firstName = String(formData.get("firstName") ?? "").trim();
-    const lastName = String(formData.get("lastName") ?? "").trim();
-    const email = String(formData.get("email") ?? "").trim().toLowerCase();
-    const password = String(formData.get("password") ?? "");
-    const confirm = String(formData.get("confirmPassword") ?? "");
-    const rawEmoji = String(formData.get("profileEmoji") ?? "").trim();
-    const profileEmoji = isAllowedProfileEmoji(rawEmoji) ? rawEmoji.slice(0, 8) : DEFAULT_PROFILE_EMOJI;
-
-    if (!username || !firstName || !lastName || !email || !password) {
-      return { error: "All fields are required." };
-    }
-    if (username.length < 2) {
-      return { error: "Username must be at least 2 characters." };
-    }
-    if (firstName.length < 1) {
-      return { error: "Please enter your first name." };
-    }
-    if (lastName.length < 1) {
-      return { error: "Please enter your last name." };
-    }
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-      return { error: "Please enter a valid email address." };
-    }
-    if (password.length < 8) {
-      return { error: "Password must be at least 8 characters." };
-    }
-    if (password !== confirm) {
-      return { error: "Passwords do not match." };
-    }
-
-    const db = getDb();
-    if (db.prepare("SELECT 1 FROM users WHERE LOWER(username) = LOWER(?)").get(username)) {
+    db.prepare(
+      `INSERT INTO users (username, email, password_hash, email_verified, verification_token, verification_expires, first_name, last_name, profile_emoji)
+       VALUES (?, ?, ?, 0, ?, ?, ?, ?, ?)`
+    ).run(username, email, passwordHash, token, Math.floor(expires / 1000), firstName, lastName, profileEmoji);
+  } catch (err) {
+    const msg = err && typeof err === "object" && "message" in err ? String((err as { message: unknown }).message) : "";
+    if (msg.includes("UNIQUE constraint failed") && msg.includes("username")) {
       return { error: "Username is already taken." };
     }
-    if (db.prepare("SELECT 1 FROM users WHERE LOWER(email) = ?").get(email)) {
+    if (msg.includes("UNIQUE constraint failed") && msg.includes("email")) {
       return { error: "An account with this email already exists." };
     }
-
-    const passwordHash = await hashPassword(password);
-    const { token, expires } = createVerificationToken();
-    try {
-      db.prepare(
-        `INSERT INTO users (username, email, password_hash, email_verified, verification_token, verification_expires, first_name, last_name, profile_emoji)
-         VALUES (?, ?, ?, 0, ?, ?, ?, ?, ?)`
-      ).run(username, email, passwordHash, token, Math.floor(expires / 1000), firstName, lastName, profileEmoji);
-    } catch (err) {
-      const msg = err && typeof err === "object" && "message" in err ? String((err as { message: unknown }).message) : "";
-      if (msg.includes("UNIQUE constraint failed") && msg.includes("username")) {
-        return { error: "Username is already taken." };
-      }
-      if (msg.includes("UNIQUE constraint failed") && msg.includes("email")) {
-        return { error: "An account with this email already exists." };
-      }
-      throw err;
-    }
-
-    const origin = getOrigin(request);
-    const verifyUrl = `${origin}/verify-email?token=${token}`;
-
-    const { isEmailConfigured, sendVerificationEmail } = await import("~/lib/email.server");
-    let emailError: string | null = null;
-    if (isEmailConfigured()) {
-      try {
-        await sendVerificationEmail(email, verifyUrl);
-      } catch (err) {
-        console.error("Failed to send verification email:", err);
-        const raw = err instanceof Error ? err.message : String(err);
-        const isAuthError = /535|authentication failed|Invalid login/i.test(raw);
-        emailError = isAuthError
-          ? "SMTP authentication failed. For Proton Mail: use a custom-domain address and the SMTP token from Settings → Proton Mail → IMAP/SMTP → SMTP tokens (not your account password)."
-          : `Could not send email: ${raw}`;
-      }
-    } else {
-      emailError = "Email is not configured. Set SMTP_USER and SMTP_PASS.";
-    }
-    const params = new URLSearchParams({ sent: "1" });
-    if (emailError) params.set("email_error", encodeURIComponent(emailError));
-    return redirect(`/verify-email?${params.toString()}`);
-  } catch (err) {
-    if (err && typeof err === "object" && "status" in err) {
-      const status = (err as { status: number }).status;
-      if (status >= 300 && status < 400) throw err;
-    }
-    console.error("Signup action error:", err);
-    const message = err instanceof Error ? err.message : String(err);
-    return { error: `Something went wrong. Please try again. (${message})` };
+    throw err;
   }
+
+  // When SMTP is configured (e.g. Mailpit locally, or a real provider in
+  // production) send the verification email and land on the "check your inbox"
+  // page. Without SMTP we skip email and redirect straight to the verification
+  // link so you can create an account and sign in without any mail setup.
+  const verifyUrl = `${getOrigin(request)}/verify-email?token=${token}`;
+  if (isEmailConfigured()) {
+    await sendVerificationEmail(email, verifyUrl, username);
+    return redirect("/verify-email?sent=1");
+  }
+
+  if (process.env.NODE_ENV !== "production") {
+    return redirect(`/verify-email?token=${token}`);
+  }
+
+  return redirect("/verify-email?sent=1");
 }
 
 function getOrigin(request: Request): string {
-  try {
-    const url = new URL(request.url);
-    return url.origin;
-  } catch {
-    const host = request.headers.get("x-forwarded-host") ?? request.headers.get("host");
-    const proto = request.headers.get("x-forwarded-proto") ?? "https";
-    return host ? `${proto}://${host}` : "https://localhost";
-  }
+  const url = new URL(request.url);
+  return url.origin;
 }
 
 export default function Signup() {
@@ -139,7 +117,7 @@ export default function Signup() {
           </p>
           {import.meta.env.DEV && (
             <p className="mt-2 text-[13px] text-amber-600 dark:text-amber-400">
-              Set SMTP_USER and SMTP_PASS in .env to receive the verification email.
+              In development you’ll be verified automatically—no email needed.
             </p>
           )}
         </div>
@@ -162,7 +140,7 @@ export default function Signup() {
               type="text"
               autoComplete="given-name"
               required
-              className="w-full rounded-xl bg-neutral-100 dark:bg-neutral-700/50 border-0 px-4 py-3 text-[17px] text-neutral-900 dark:text-white placeholder-neutral-400 focus:outline-none focus:ring-2 focus:ring-[#0A84FF] focus:ring-offset-2 dark:focus:ring-offset-neutral-800"
+              className="w-full rounded-xl bg-neutral-100 dark:bg-neutral-700/50 border-0 px-4 py-3 text-[17px] text-neutral-900 dark:text-white placeholder-neutral-400 focus:outline-none focus:ring-2 focus:ring-[#f56772] focus:ring-offset-2 dark:focus:ring-offset-neutral-800"
               placeholder="Your first name"
             />
           </div>
@@ -176,7 +154,7 @@ export default function Signup() {
               type="text"
               autoComplete="family-name"
               required
-              className="w-full rounded-xl bg-neutral-100 dark:bg-neutral-700/50 border-0 px-4 py-3 text-[17px] text-neutral-900 dark:text-white placeholder-neutral-400 focus:outline-none focus:ring-2 focus:ring-[#0A84FF] focus:ring-offset-2 dark:focus:ring-offset-neutral-800"
+              className="w-full rounded-xl bg-neutral-100 dark:bg-neutral-700/50 border-0 px-4 py-3 text-[17px] text-neutral-900 dark:text-white placeholder-neutral-400 focus:outline-none focus:ring-2 focus:ring-[#f56772] focus:ring-offset-2 dark:focus:ring-offset-neutral-800"
               placeholder="Your last name"
             />
           </div>
@@ -191,7 +169,7 @@ export default function Signup() {
               autoComplete="username"
               required
               minLength={2}
-              className="w-full rounded-xl bg-neutral-100 dark:bg-neutral-700/50 border-0 px-4 py-3 text-[17px] text-neutral-900 dark:text-white placeholder-neutral-400 focus:outline-none focus:ring-2 focus:ring-[#0A84FF] focus:ring-offset-2 dark:focus:ring-offset-neutral-800"
+              className="w-full rounded-xl bg-neutral-100 dark:bg-neutral-700/50 border-0 px-4 py-3 text-[17px] text-neutral-900 dark:text-white placeholder-neutral-400 focus:outline-none focus:ring-2 focus:ring-[#f56772] focus:ring-offset-2 dark:focus:ring-offset-neutral-800"
               placeholder="Choose a username"
             />
           </div>
@@ -205,7 +183,7 @@ export default function Signup() {
               type="email"
               autoComplete="email"
               required
-              className="w-full rounded-xl bg-neutral-100 dark:bg-neutral-700/50 border-0 px-4 py-3 text-[17px] text-neutral-900 dark:text-white placeholder-neutral-400 focus:outline-none focus:ring-2 focus:ring-[#0A84FF] focus:ring-offset-2 dark:focus:ring-offset-neutral-800"
+              className="w-full rounded-xl bg-neutral-100 dark:bg-neutral-700/50 border-0 px-4 py-3 text-[17px] text-neutral-900 dark:text-white placeholder-neutral-400 focus:outline-none focus:ring-2 focus:ring-[#f56772] focus:ring-offset-2 dark:focus:ring-offset-neutral-800"
               placeholder="you@example.com"
             />
           </div>
@@ -226,7 +204,7 @@ export default function Signup() {
                 autoComplete="new-password"
                 required
                 minLength={8}
-                className="w-full rounded-xl bg-neutral-100 dark:bg-neutral-700/50 border-0 px-4 pr-12 py-3 text-[17px] text-neutral-900 dark:text-white placeholder-neutral-400 focus:outline-none focus:ring-2 focus:ring-[#0A84FF] focus:ring-offset-2 dark:focus:ring-offset-neutral-800"
+                className="w-full rounded-xl bg-neutral-100 dark:bg-neutral-700/50 border-0 px-4 pr-12 py-3 text-[17px] text-neutral-900 dark:text-white placeholder-neutral-400 focus:outline-none focus:ring-2 focus:ring-[#f56772] focus:ring-offset-2 dark:focus:ring-offset-neutral-800"
                 placeholder="Choose your password"
               />
               <button
@@ -253,7 +231,7 @@ export default function Signup() {
                 autoComplete="new-password"
                 required
                 placeholder="Confirm your password"
-                className="w-full rounded-xl bg-neutral-100 dark:bg-neutral-700/50 border-0 px-4 pr-12 py-3 text-[17px] text-neutral-900 dark:text-white placeholder-neutral-400 focus:outline-none focus:ring-2 focus:ring-[#0A84FF] focus:ring-offset-2 dark:focus:ring-offset-neutral-800"
+                className="w-full rounded-xl bg-neutral-100 dark:bg-neutral-700/50 border-0 px-4 pr-12 py-3 text-[17px] text-neutral-900 dark:text-white placeholder-neutral-400 focus:outline-none focus:ring-2 focus:ring-[#f56772] focus:ring-offset-2 dark:focus:ring-offset-neutral-800"
               />
               <button
                 type="button"
@@ -287,7 +265,7 @@ export default function Signup() {
                     aria-pressed={isSelected}
                     className={`w-10 h-10 rounded-xl text-xl flex items-center justify-center border-2 transition-colors focus:outline-none focus:ring-0 [&:focus]:outline-none [&:focus]:ring-0 ${
                       isSelected
-                        ? "!border-[#0A84FF] !bg-[#0A84FF]/10 dark:!bg-[#0A84FF]/15"
+                        ? "!border-[#f56772] !bg-[#f56772]/10 dark:!bg-[#f56772]/15"
                         : "border-neutral-100 bg-neutral-100 dark:border-neutral-700/50 dark:bg-neutral-700/50 hover:bg-neutral-200 dark:hover:bg-neutral-600/50"
                     }`}
                     title={`Choose ${emoji}`}
@@ -303,13 +281,13 @@ export default function Signup() {
           </div>
           <button
             type="submit"
-            className="w-full rounded-xl bg-[#0A84FF] px-4 py-3 text-[17px] font-medium text-white hover:opacity-90 active:opacity-80 transition-opacity"
+            className="w-full rounded-xl bg-[#f56772] px-4 py-3 text-[17px] font-medium text-white hover:opacity-90 active:opacity-80 transition-opacity"
           >
             Sign up
           </button>
           <p className="text-center text-[15px] text-neutral-500 dark:text-neutral-400">
             Already have an account?{" "}
-            <a href="/login" className="text-[#0A84FF] hover:underline">
+            <a href="/login" className="text-[#f56772] hover:underline">
               Sign in
             </a>
           </p>
