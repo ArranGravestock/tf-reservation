@@ -99,6 +99,23 @@ function createDb(): Database.Database {
     // Backfill: anyone currently verified has verified at least once.
     db.exec("UPDATE users SET ever_verified = 1 WHERE email_verified = 1");
   }
+
+  // Bootstrap admins from the ADMIN_USERNAMES env var (comma-separated). Runs on
+  // startup so the first admin can be granted with a Railway variable alone —
+  // no shell access needed. Idempotent; only promotes existing users, never
+  // revokes. Re-applies automatically if the DB is ever recreated.
+  const adminUsernames = (process.env.ADMIN_USERNAMES ?? "")
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+  if (adminUsernames.length > 0) {
+    const promote = db.prepare("UPDATE users SET is_admin = 1 WHERE username = ? AND is_admin = 0");
+    for (const uname of adminUsernames) {
+      const res = promote.run(uname);
+      if (res.changes > 0) console.log(`[db] Promoted "${uname}" to admin via ADMIN_USERNAMES`);
+    }
+  }
+
   return db;
 }
 
