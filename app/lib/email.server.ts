@@ -51,6 +51,11 @@ function getTransporter(): Transporter | null {
     // to sending credentials/mail in plaintext. Left off for local Mailpit.
     requireTLS: !SMTP_SECURE && Boolean(SES_TENANT),
     auth: SMTP_USER ? { user: SMTP_USER, pass: SMTP_PASS ?? "" } : undefined,
+    // Fail fast instead of hanging the request forever if the SMTP port is
+    // blocked/filtered (common on cloud hosts) or the server is unreachable.
+    connectionTimeout: 10_000, // TCP connect
+    greetingTimeout: 10_000, // wait for server 220 greeting
+    socketTimeout: 20_000, // inactivity once connected
   });
   return transporter;
 }

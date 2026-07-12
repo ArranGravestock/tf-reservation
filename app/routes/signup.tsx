@@ -82,7 +82,13 @@ export async function action({ request }: { request: Request }) {
   // link so you can create an account and sign in without any mail setup.
   const verifyUrl = `${getOrigin(request)}/verify-email?token=${token}`;
   if (isEmailConfigured()) {
-    await sendVerificationEmail(email, verifyUrl, username);
+    try {
+      await sendVerificationEmail(email, verifyUrl, username);
+    } catch (err) {
+      // Account is already created; don't 500. Log and let them request a
+      // fresh verification link later from account settings.
+      console.error("[signup] Failed to send verification email:", err);
+    }
     return redirect("/verify-email?sent=1");
   }
 
