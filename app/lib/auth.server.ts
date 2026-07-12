@@ -141,8 +141,10 @@ export async function resetPasswordWithToken(
     .get(t, Date.now()) as { id: number } | undefined;
   if (!user) return { error: "Invalid or expired reset link. Please request a new one." };
   const hash = await hashPassword(newPassword);
+  // Clicking a reset link delivered to the user's inbox proves they control the
+  // email address, so treat the account as verified on a successful reset.
   db.prepare(
-    "UPDATE users SET password_hash = ?, reset_token = NULL, reset_token_expires = NULL WHERE id = ?"
+    "UPDATE users SET password_hash = ?, reset_token = NULL, reset_token_expires = NULL, email_verified = 1, ever_verified = 1, verification_token = NULL, verification_expires = NULL WHERE id = ?"
   ).run(hash, user.id);
   return null;
 }
