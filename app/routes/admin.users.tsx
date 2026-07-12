@@ -47,6 +47,8 @@ export async function action({ request }: Route.ActionArgs) {
       .map((id) => parseInt(String(id), 10))
       .filter((n) => !Number.isNaN(n));
     let lastLink: string | undefined;
+    let sent = 0;
+    let failed = 0;
     for (const targetUserId of userIds) {
       const target = db.prepare("SELECT id, email, username FROM users WHERE id = ?").get(targetUserId) as { id: number; email: string; username: string } | undefined;
       if (!target) continue;
@@ -57,15 +59,26 @@ export async function action({ request }: Route.ActionArgs) {
       const origin = new URL(request.url).origin;
       lastLink = `${origin}/verify-email?token=${token}`;
       if (isEmailConfigured()) {
-        await sendVerificationEmail(target.email, lastLink, target.username);
-      } else if (process.env.NODE_ENV !== "production") {
-        console.log("[admin resend verification] Link for", target.email, ":", lastLink);
+        // Isolate each send so one SMTP failure doesn't abort the whole batch.
+        try {
+          await sendVerificationEmail(target.email, lastLink, target.username);
+          sent++;
+        } catch (err) {
+          console.error("[admin resend verification] Failed to send to", target.email, err);
+          failed++;
+        }
+      } else {
+        sent++;
+        if (process.env.NODE_ENV !== "production") {
+          console.log("[admin resend verification] Link for", target.email, ":", lastLink);
+        }
       }
     }
     if (userIds.length > 0) {
       return {
         resendOk: true,
-        resendCount: userIds.length,
+        resendCount: sent,
+        resendFailed: failed,
         verificationLink: process.env.NODE_ENV !== "production" ? lastLink : undefined,
       };
     }
@@ -549,9 +562,12 @@ export default function AdminUsers() {
           aria-live="polite"
         >
           <p className="text-[15px] font-medium">
-            {(actionData.resendCount ?? 1) > 1
+            {actionData.resendCount === 0
+              ? "Couldn't send any verification emails. Please try again."
+              : (actionData.resendCount ?? 1) > 1
               ? `Verification email sent to ${actionData.resendCount} users.`
               : "Verification email sent to them."}
+            {actionData.resendFailed ? ` ${actionData.resendFailed} failed.` : ""}
           </p>
           <button
             type="button"

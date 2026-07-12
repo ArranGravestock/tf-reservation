@@ -14,8 +14,21 @@ const SMTP_HOST = process.env.SMTP_HOST;
 const SMTP_PORT = process.env.SMTP_PORT ? parseInt(process.env.SMTP_PORT, 10) : 1025;
 const SMTP_USER = process.env.SMTP_USER;
 const SMTP_PASS = process.env.SMTP_PASS;
-const SMTP_SECURE = process.env.SMTP_SECURE === "true"; // true for 465, false for 1025/587
+const SMTP_SECURE = process.env.SMTP_SECURE === "true"; // true for 465, false for 587 (STARTTLS) / 1025
 const MAIL_FROM = process.env.MAIL_FROM ?? "Terrible Football Liverpool <no-reply@tf-liverpool.local>";
+
+// Amazon SES tenant attribution (Option B — SMTP). When SES_TENANT is set we
+// attach the X-SES-* headers SES requires for tenant/config-set attribution;
+// SES strips them before delivery. Left unset for local Mailpit dev.
+const SES_TENANT = process.env.SES_TENANT;
+const SES_CONFIGURATION_SET = process.env.SES_CONFIGURATION_SET;
+
+function sesHeaders(): Record<string, string> | undefined {
+  if (!SES_TENANT) return undefined;
+  const headers: Record<string, string> = { "X-SES-TENANT": SES_TENANT };
+  if (SES_CONFIGURATION_SET) headers["X-SES-CONFIGURATION-SET"] = SES_CONFIGURATION_SET;
+  return headers;
+}
 
 let transporter: Transporter | null | undefined;
 
@@ -34,6 +47,9 @@ function getTransporter(): Transporter | null {
     host: SMTP_HOST,
     port: SMTP_PORT,
     secure: SMTP_SECURE,
+    // For SES (port 587 STARTTLS) require the TLS upgrade so we never fall back
+    // to sending credentials/mail in plaintext. Left off for local Mailpit.
+    requireTLS: !SMTP_SECURE && Boolean(SES_TENANT),
     auth: SMTP_USER ? { user: SMTP_USER, pass: SMTP_PASS ?? "" } : undefined,
   });
   return transporter;
@@ -52,7 +68,7 @@ export async function sendMail({ to, subject, text, html }: SendMailOptions): Pr
     console.log(`[email] SMTP not configured; would send to ${to}: ${subject}\n${text}`);
     return;
   }
-  await t.sendMail({ from: MAIL_FROM, to, subject, text, html });
+  await t.sendMail({ from: MAIL_FROM, to, subject, text, html, headers: sesHeaders() });
 }
 
 function layout(heading: string, bodyHtml: string): string {

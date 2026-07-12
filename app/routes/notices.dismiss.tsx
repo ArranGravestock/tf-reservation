@@ -14,12 +14,18 @@ export async function action({ request }: Route.ActionArgs) {
   const notice = db.prepare("SELECT id FROM notices WHERE id = ?").get(id);
   if (!notice) throw new Response("Not found", { status: 404 });
   dismissNotice(db, user.id, id);
+  // Redirect back to where the user came from, but only to a same-origin path
+  // (never the raw Referer header, which could point off-site).
   const referer = request.headers.get("Referer") ?? "";
   try {
-    const pathname = new URL(referer).pathname;
-    if (/\/notices\/\d+/.test(pathname)) return redirect("/events");
+    const url = new URL(referer);
+    if (url.origin === new URL(request.url).origin) {
+      // Leaving a single-notice page: that notice is now gone, so go to /events.
+      if (/\/notices\/\d+/.test(url.pathname)) return redirect("/events");
+      return redirect(url.pathname + url.search);
+    }
   } catch {
-    // invalid referer
+    // invalid or missing referer
   }
-  return redirect(referer || "/events");
+  return redirect("/events");
 }

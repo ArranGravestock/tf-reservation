@@ -24,6 +24,7 @@ export async function loader({ request }: { request: Request }) {
        COUNT(s.id) + COALESCE(SUM(s.guest_count), 0) as signup_count
      FROM events e
      LEFT JOIN event_signups s ON s.event_id = e.id
+     WHERE strftime('%w', e.event_date) = '6'
      GROUP BY e.id
      ORDER BY e.event_date ASC`
   ).all() as (Event & { signup_count: number | string })[];

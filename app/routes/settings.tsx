@@ -76,7 +76,15 @@ export async function action({ request }: { request: Request }) {
     ).run(token, Math.floor(expires / 1000), user.id);
     const verifyUrl = `${new URL(request.url).origin}/verify-email?token=${token}`;
     if (isEmailConfigured()) {
-      await sendVerificationEmail(email, verifyUrl, user.username);
+      try {
+        await sendVerificationEmail(email, verifyUrl, user.username);
+      } catch (err) {
+        console.error("[settings] Failed to send verification email:", err);
+        return {
+          intent: "email",
+          error: "Your email was updated, but we couldn't send the verification email. Request a new link from your account settings.",
+        };
+      }
       return redirect("/verify-email?sent=1");
     }
     if (process.env.NODE_ENV !== "production") {
@@ -101,6 +109,9 @@ export async function action({ request }: { request: Request }) {
     }
     if (newPassword.length === 0) {
       return redirect("/settings");
+    }
+    if (newPassword === currentPassword) {
+      return { intent: "password", error: "New password must be different from your current password." };
     }
     const error = await updateUserProfile(user.id, {
       currentPassword,

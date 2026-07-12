@@ -170,6 +170,13 @@ export function isEventEnded(event: { event_date: string; time?: string | null }
   return Date.now() > end.getTime();
 }
 
+/** True if the given YYYY-MM-DD date falls on a Saturday. */
+export function isSaturdayEvent(eventDate: string): boolean {
+  const [y, m, d] = eventDate.split("-").map(Number);
+  if (!y || !m || !d) return false;
+  return new Date(y, m - 1, d, 12, 0, 0, 0).getDay() === 6;
+}
+
 export type EventSignup = {
   id: number;
   event_id: number;
