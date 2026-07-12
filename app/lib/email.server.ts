@@ -65,10 +65,38 @@ export interface SendMailOptions {
 export async function sendMail({ to, subject, text, html }: SendMailOptions): Promise<void> {
   const t = getTransporter();
   if (!t) {
-    console.log(`[email] SMTP not configured; would send to ${to}: ${subject}\n${text}`);
+    console.warn(
+      `[email] SMTP not configured (SMTP_HOST unset); NOT sending "${subject}" to ${to}. Link/content only logged in dev.`
+    );
+    if (process.env.NODE_ENV !== "production") {
+      console.log(`[email] (dev) would send to ${to}: ${subject}\n${text}`);
+    }
     return;
   }
-  await t.sendMail({ from: MAIL_FROM, to, subject, text, html, headers: sesHeaders() });
+  const startedAt = Date.now();
+  console.log(
+    `[email] sending "${subject}" to ${to} via ${SMTP_HOST}:${SMTP_PORT}` +
+      `${SES_TENANT ? ` (SES tenant=${SES_TENANT})` : ""}`
+  );
+  try {
+    const info = await t.sendMail({ from: MAIL_FROM, to, subject, text, html, headers: sesHeaders() });
+    console.log(
+      `[email] sent "${subject}" to ${to} in ${Date.now() - startedAt}ms — ` +
+        `messageId=${info.messageId ?? "?"} ` +
+        `accepted=${JSON.stringify(info.accepted ?? [])} ` +
+        `rejected=${JSON.stringify(info.rejected ?? [])} ` +
+        `response=${JSON.stringify(info.response ?? "")}`
+    );
+    if (info.rejected && info.rejected.length > 0) {
+      console.error(`[email] server REJECTED recipients for "${subject}": ${JSON.stringify(info.rejected)}`);
+    }
+  } catch (err) {
+    console.error(
+      `[email] FAILED to send "${subject}" to ${to} after ${Date.now() - startedAt}ms:`,
+      err instanceof Error ? `${err.name}: ${err.message}` : err
+    );
+    throw err;
+  }
 }
 
 function layout(heading: string, bodyHtml: string): string {

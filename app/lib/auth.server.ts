@@ -118,7 +118,12 @@ export async function requestPasswordReset(email: string): Promise<{ error?: str
   const baseUrl = process.env.ORIGIN ?? "http://localhost:5173";
   const resetUrl = `${baseUrl}/reset-password?token=${token}`;
   if (isEmailConfigured()) {
-    await sendPasswordResetEmail(user.email, resetUrl);
+    try {
+      await sendPasswordResetEmail(user.email, resetUrl);
+    } catch (err) {
+      // Log but still return ok so we don't reveal the address exists or 500 the page.
+      console.error(`[auth] Failed to send password reset email to ${user.email}:`, err);
+    }
   } else {
     console.log("[dev] Password reset link:", resetUrl);
   }
