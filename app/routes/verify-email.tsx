@@ -43,7 +43,7 @@ export default function VerifyEmail() {
 
   if (token && !invalidToken) {
     return (
-      <main className="min-h-screen flex flex-col items-center justify-center bg-[#f5f5f7] dark:bg-[#1c1c1e] p-6">
+      <main className="min-h-dvh flex flex-col items-center justify-center bg-[#f5f5f7] dark:bg-[#1c1c1e] p-6">
         <div className="text-center text-[15px] text-neutral-500 dark:text-neutral-400">
           Verifying...
         </div>
@@ -52,7 +52,7 @@ export default function VerifyEmail() {
   }
 
   return (
-    <main className="min-h-screen flex flex-col items-center justify-center bg-[#f5f5f7] dark:bg-[#1c1c1e] p-6">
+    <main className="min-h-dvh flex flex-col items-center justify-center bg-[#f5f5f7] dark:bg-[#1c1c1e] p-6">
       <div className="w-full max-w-md rounded-3xl bg-white dark:bg-neutral-800/80 p-8 shadow-sm dark:shadow-none border border-neutral-200/60 dark:border-neutral-700/60 text-center space-y-5">
         <h1 className="text-[22px] font-semibold text-neutral-900 dark:text-white">
           {invalidToken ? "Link expired or invalid" : "Check your email"}

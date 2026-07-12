@@ -19,7 +19,7 @@ export default function ForgotPassword() {
 
   if (actionData?.success) {
     return (
-      <main className="min-h-screen flex flex-col items-center justify-center bg-[#f5f5f7] dark:bg-[#1c1c1e] p-6">
+      <main className="min-h-dvh flex flex-col items-center justify-center bg-[#f5f5f7] dark:bg-[#1c1c1e] p-6">
         <div className="w-full max-w-[340px] rounded-3xl bg-white dark:bg-neutral-800/80 p-6 shadow-sm dark:shadow-none border border-neutral-200/60 dark:border-neutral-700/60 text-center space-y-4">
           <h1 className="text-[22px] font-semibold text-neutral-900 dark:text-white">
             Check your email
@@ -39,7 +39,7 @@ export default function ForgotPassword() {
   }
 
   return (
-    <main className="min-h-screen flex flex-col items-center justify-center bg-[#f5f5f7] dark:bg-[#1c1c1e] p-6">
+    <main className="min-h-dvh flex flex-col items-center justify-center bg-[#f5f5f7] dark:bg-[#1c1c1e] p-6">
       <div className="w-full max-w-[340px] space-y-8">
         <div className="text-center">
           <h1 className="text-[28px] font-semibold tracking-tight text-neutral-900 dark:text-white">

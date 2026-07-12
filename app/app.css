@@ -69,3 +69,11 @@ select,
 label[for] {
   cursor: pointer;
 }
+
+/* Never allow the page itself to scroll horizontally; wide content (tables,
+   diagrams) must scroll inside its own overflow container instead. */
+html,
+body {
+  max-width: 100%;
+  overflow-x: hidden;
+}

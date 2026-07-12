@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import {
   Form,
   isRouteErrorResponse,
@@ -7,6 +8,7 @@ import {
   Outlet,
   Scripts,
   ScrollRestoration,
+  useLocation,
   useRouteLoaderData,
 } from "react-router";
 
@@ -65,76 +67,138 @@ export default function App() {
   } | undefined;
   const user = data?.user ?? null;
   const notices = data?.notices ?? [];
+  const location = useLocation();
+  const [mobileOpen, setMobileOpen] = useState(false);
+
+  // Close the mobile menu whenever the route changes.
+  useEffect(() => {
+    setMobileOpen(false);
+  }, [location.pathname]);
+
+  const linkClass =
+    "text-[15px] text-neutral-500 hover:text-neutral-900 dark:text-neutral-400 dark:hover:text-white transition-colors";
+  const mobileLinkClass =
+    "block py-2.5 text-[17px] text-neutral-700 dark:text-neutral-200 hover:text-neutral-900 dark:hover:text-white";
 
   return (
     <>
       {user && (
-        <nav className="sticky top-0 z-10 border-b border-neutral-200/80 bg-white/80 backdrop-blur-xl dark:border-neutral-700/50 dark:bg-black/70 px-6">
-          <div className="max-w-2xl lg:max-w-5xl mx-auto h-14 flex items-center justify-between">
-            <div className="flex items-center gap-6">
+        <nav className="sticky top-0 z-20 border-b border-neutral-200/80 bg-white/80 backdrop-blur-xl dark:border-neutral-700/50 dark:bg-black/70 px-4 sm:px-6">
+          <div className="max-w-2xl lg:max-w-5xl mx-auto h-14 flex items-center justify-between gap-4">
+            <div className="flex items-center gap-6 min-w-0">
               <Link
                 to="/events"
-                className="text-[17px] font-semibold text-neutral-900 dark:text-white"
+                className="text-[17px] font-semibold text-neutral-900 dark:text-white shrink-0"
               >
                 Terrible Football{" "}
                 <span className="bg-gradient-to-r from-red-500 via-red-600 to-red-700 dark:from-red-400 dark:via-red-500 dark:to-red-600 bg-clip-text text-transparent">
                   Liverpool
                 </span>
               </Link>
-              <Link
-                to="/events"
-                className="text-[15px] text-neutral-500 hover:text-neutral-900 dark:text-neutral-400 dark:hover:text-white transition-colors"
-              >
-                Sessions
-              </Link>
-              {user.isAdmin && (
-                <>
-                  <Link
-                    to="/admin/users"
-                    className="text-[15px] text-neutral-500 hover:text-neutral-900 dark:text-neutral-400 dark:hover:text-white transition-colors"
-                  >
-                    Users
-                  </Link>
-                  <Link
-                    to="/notices"
-                    className="text-[15px] text-neutral-500 hover:text-neutral-900 dark:text-neutral-400 dark:hover:text-white transition-colors"
-                  >
-                    Notices
-                  </Link>
-                </>
-              )}
-              <Link
-                to="/faq"
-                className="text-[15px] text-neutral-500 hover:text-neutral-900 dark:text-neutral-400 dark:hover:text-white transition-colors"
-              >
-                FAQ
-              </Link>
+              {/* Desktop primary links */}
+              <div className="hidden lg:flex items-center gap-6">
+                <Link to="/events" className={linkClass}>
+                  Sessions
+                </Link>
+                {user.isAdmin && (
+                  <>
+                    <Link to="/admin/users" className={linkClass}>
+                      Users
+                    </Link>
+                    <Link to="/notices" className={linkClass}>
+                      Notices
+                    </Link>
+                  </>
+                )}
+                <Link to="/faq" className={linkClass}>
+                  FAQ
+                </Link>
+              </div>
             </div>
-            <div className="flex items-center gap-6">
-              <Link
-                to="/settings"
-                className="text-[15px] text-neutral-500 hover:text-neutral-900 dark:text-neutral-400 dark:hover:text-white transition-colors"
-              >
+
+            {/* Desktop account group */}
+            <div className="hidden lg:flex items-center gap-6 min-w-0">
+              <Link to="/settings" className={linkClass}>
                 Settings
               </Link>
-              <span className="flex items-center gap-2 text-[15px] text-neutral-500 dark:text-neutral-400">
+              <span className="flex items-center gap-2 text-[15px] text-neutral-500 dark:text-neutral-400 min-w-0">
                 {user.profileEmoji && (
-                  <span className="text-lg leading-none" aria-hidden>
+                  <span className="text-lg leading-none shrink-0" aria-hidden>
                     {user.profileEmoji}
                   </span>
                 )}
-                {user.username}
+                <span className="truncate">{user.username}</span>
               </span>
               <Form method="post" action="/logout">
-                <button
-                  type="submit"
-                  className="text-[15px] text-[#f56772] hover:opacity-80"
-                >
+                <button type="submit" className="text-[15px] text-[#f56772] hover:opacity-80">
                   Log out
                 </button>
               </Form>
             </div>
+
+            {/* Mobile hamburger */}
+            <button
+              type="button"
+              onClick={() => setMobileOpen((o) => !o)}
+              className="lg:hidden -mr-2 inline-flex items-center justify-center p-2 rounded-lg text-neutral-600 dark:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-700/60 transition-colors"
+              aria-label={mobileOpen ? "Close menu" : "Open menu"}
+              aria-expanded={mobileOpen}
+              aria-controls="mobile-menu"
+            >
+              <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8} aria-hidden>
+                {mobileOpen ? (
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                ) : (
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M4 7h16M4 12h16M4 17h16" />
+                )}
+              </svg>
+            </button>
           </div>
+
+          {/* Mobile menu panel */}
+          {mobileOpen && (
+            <div
+              id="mobile-menu"
+              className="lg:hidden border-t border-neutral-200/80 dark:border-neutral-700/50 py-2"
+            >
+              <div className="max-w-2xl lg:max-w-5xl mx-auto flex flex-col divide-y divide-neutral-100 dark:divide-neutral-800">
+                <Link to="/events" className={mobileLinkClass} onClick={() => setMobileOpen(false)}>
+                  Sessions
+                </Link>
+                {user.isAdmin && (
+                  <>
+                    <Link to="/admin/users" className={mobileLinkClass} onClick={() => setMobileOpen(false)}>
+                      Users
+                    </Link>
+                    <Link to="/notices" className={mobileLinkClass} onClick={() => setMobileOpen(false)}>
+                      Notices
+                    </Link>
+                  </>
+                )}
+                <Link to="/faq" className={mobileLinkClass} onClick={() => setMobileOpen(false)}>
+                  FAQ
+                </Link>
+                <Link to="/settings" className={mobileLinkClass} onClick={() => setMobileOpen(false)}>
+                  Settings
+                </Link>
+                <div className="flex items-center justify-between py-3">
+                  <span className="flex items-center gap-2 text-[15px] text-neutral-500 dark:text-neutral-400 min-w-0">
+                    {user.profileEmoji && (
+                      <span className="inline-grid place-items-center w-6 h-6 text-lg leading-none shrink-0" aria-hidden>
+                        {user.profileEmoji}
+                      </span>
+                    )}
+                    <span className="truncate leading-none">{user.username}</span>
+                  </span>
+                  <Form method="post" action="/logout">
+                    <button type="submit" className="text-[15px] font-medium text-[#f56772] hover:opacity-80">
+                      Log out
+                    </button>
+                  </Form>
+                </div>
+              </div>
+            </div>
+          )}
         </nav>
       )}
       <Outlet />

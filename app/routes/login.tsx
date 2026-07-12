@@ -34,7 +34,7 @@ export default function Login() {
   const reset = searchParams.get("reset") === "1";
 
   return (
-    <main className="min-h-screen flex flex-col items-center justify-center bg-[#f5f5f7] dark:bg-[#1c1c1e] p-6">
+    <main className="min-h-dvh flex flex-col items-center justify-center bg-[#f5f5f7] dark:bg-[#1c1c1e] p-6">
       <div className="w-full max-w-[340px] space-y-8">
         <div className="text-center">
           <h1 className="text-[28px] font-semibold tracking-tight text-neutral-900 dark:text-white">
