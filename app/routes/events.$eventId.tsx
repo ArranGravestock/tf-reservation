@@ -179,7 +179,7 @@ export default function EventDetail() {
             to="/events"
             className="text-[15px] text-[#f56772] hover:opacity-80 inline-block"
           >
-            ← Back to events
+            ← Back
           </Link>
           {isAdmin && !isEditing && (
             <button

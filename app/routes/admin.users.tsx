@@ -244,7 +244,7 @@ export default function AdminUsers() {
       <div className="flex-1 flex flex-col min-h-0 max-w-2xl lg:max-w-5xl w-full mx-auto p-6 overflow-hidden">
         <div className="shrink-0 mb-4">
           <Link to="/events" className="text-[15px] text-[#f56772] hover:opacity-80 inline-block">
-            ← Back to events
+            ← Back
           </Link>
         </div>
         <h1 className="text-[28px] font-semibold text-neutral-900 dark:text-white mb-2">

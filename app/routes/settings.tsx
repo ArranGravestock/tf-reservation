@@ -12,6 +12,56 @@ export function meta({}: Route.MetaArgs) {
   return [{ title: "Settings – Terrible Football Liverpool" }];
 }
 
+function PasswordInput({
+  id,
+  name,
+  label,
+  autoComplete,
+  placeholder,
+  required,
+  minLength,
+}: {
+  id: string;
+  name: string;
+  label: string;
+  autoComplete: "current-password" | "new-password";
+  placeholder: string;
+  required?: boolean;
+  minLength?: number;
+}) {
+  const [show, setShow] = useState(false);
+  return (
+    <div>
+      <label htmlFor={id} className="block text-[13px] font-medium text-neutral-500 dark:text-neutral-400 mb-1.5">
+        {label}
+      </label>
+      <div className="relative">
+        <input
+          id={id}
+          name={name}
+          type={show ? "text" : "password"}
+          autoComplete={autoComplete}
+          required={required}
+          minLength={minLength}
+          maxLength={MAX_PASSWORD_LENGTH}
+          placeholder={placeholder}
+          className="w-full rounded-xl bg-neutral-100 dark:bg-neutral-700/50 border-0 px-4 pr-12 py-3 text-[17px] text-neutral-900 dark:text-white placeholder-neutral-400 focus:outline-none focus:ring-2 focus:ring-[#f56772] focus:ring-offset-2 dark:focus:ring-offset-neutral-800"
+        />
+        <button
+          type="button"
+          onClick={() => setShow((p) => !p)}
+          className="absolute right-3 top-1/2 -translate-y-1/2 p-1.5 rounded-lg text-neutral-500 hover:text-neutral-700 dark:text-neutral-400 dark:hover:text-neutral-200 hover:bg-neutral-200/60 dark:hover:bg-neutral-600/50 transition-colors"
+          aria-label={show ? "Hide password" : "Show password"}
+        >
+          <span className="text-lg leading-none" aria-hidden>
+            {show ? "🙈" : "👁️"}
+          </span>
+        </button>
+      </div>
+    </div>
+  );
+}
+
 export async function loader({ request }: { request: Request }) {
   const user = await requireVerifiedUser(request);
   return {
@@ -162,7 +212,7 @@ export default function Settings() {
           to="/events"
           className="text-[15px] text-[#f56772] hover:opacity-80 mb-6 inline-block"
         >
-          ← Back to events
+          ← Back
         </Link>
         <h1 className="text-[28px] font-semibold text-neutral-900 dark:text-white mb-2">
           Settings
@@ -351,20 +401,14 @@ export default function Settings() {
             </p>
           </div>
 
-          <div>
-            <label htmlFor="emailCurrentPassword" className="block text-[13px] font-medium text-neutral-500 dark:text-neutral-400 mb-1.5">
-              Current password
-            </label>
-            <input
-              id="emailCurrentPassword"
-              name="currentPassword"
-              type="password"
-              autoComplete="current-password"
-              required
-              className="w-full rounded-xl bg-neutral-100 dark:bg-neutral-700/50 border-0 px-4 py-3 text-[17px] text-neutral-900 dark:text-white placeholder-neutral-400 focus:outline-none focus:ring-2 focus:ring-[#f56772] focus:ring-offset-2 dark:focus:ring-offset-neutral-800"
-              placeholder="amber-dolphin-nest-54"
-            />
-          </div>
+          <PasswordInput
+            id="emailCurrentPassword"
+            name="currentPassword"
+            label="Current password"
+            autoComplete="current-password"
+            required
+            placeholder="amber-dolphin-nest-54"
+          />
 
           <button
             type="submit"
@@ -392,50 +436,30 @@ export default function Settings() {
             Enter your current password and a new password to change it.
           </p>
 
-          <div>
-            <label htmlFor="passwordCurrentPassword" className="block text-[13px] font-medium text-neutral-500 dark:text-neutral-400 mb-1.5">
-              Current password
-            </label>
-            <input
-              id="passwordCurrentPassword"
-              name="currentPassword"
-              type="password"
-              autoComplete="current-password"
-              className="w-full rounded-xl bg-neutral-100 dark:bg-neutral-700/50 border-0 px-4 py-3 text-[17px] text-neutral-900 dark:text-white placeholder-neutral-400 focus:outline-none focus:ring-2 focus:ring-[#f56772] focus:ring-offset-2 dark:focus:ring-offset-neutral-800"
-              placeholder="copper-willow-comet-39"
-            />
-          </div>
+          <PasswordInput
+            id="passwordCurrentPassword"
+            name="currentPassword"
+            label="Current password"
+            autoComplete="current-password"
+            placeholder="copper-willow-comet-39"
+          />
 
-          <div>
-            <label htmlFor="accountNewPassword" className="block text-[13px] font-medium text-neutral-500 dark:text-neutral-400 mb-1.5">
-              New password
-            </label>
-            <input
-              id="accountNewPassword"
-              name="newPassword"
-              type="password"
-              autoComplete="new-password"
-              minLength={8}
-              maxLength={MAX_PASSWORD_LENGTH}
-              className="w-full rounded-xl bg-neutral-100 dark:bg-neutral-700/50 border-0 px-4 py-3 text-[17px] text-neutral-900 dark:text-white placeholder-neutral-400 focus:outline-none focus:ring-2 focus:ring-[#f56772] focus:ring-offset-2 dark:focus:ring-offset-neutral-800"
-              placeholder="misty-badger-piano-71"
-            />
-          </div>
+          <PasswordInput
+            id="accountNewPassword"
+            name="newPassword"
+            label="New password"
+            autoComplete="new-password"
+            minLength={8}
+            placeholder="misty-badger-piano-71"
+          />
 
-          <div>
-            <label htmlFor="accountConfirmPassword" className="block text-[13px] font-medium text-neutral-500 dark:text-neutral-400 mb-1.5">
-              Confirm new password
-            </label>
-            <input
-              id="accountConfirmPassword"
-              name="confirmPassword"
-              type="password"
-              autoComplete="new-password"
-              maxLength={MAX_PASSWORD_LENGTH}
-              placeholder="olive-rocket-pebble-08"
-              className="w-full rounded-xl bg-neutral-100 dark:bg-neutral-700/50 border-0 px-4 py-3 text-[17px] text-neutral-900 dark:text-white placeholder-neutral-400 focus:outline-none focus:ring-2 focus:ring-[#f56772] focus:ring-offset-2 dark:focus:ring-offset-neutral-800"
-            />
-          </div>
+          <PasswordInput
+            id="accountConfirmPassword"
+            name="confirmPassword"
+            label="Confirm new password"
+            autoComplete="new-password"
+            placeholder="misty-badger-piano-71"
+          />
 
           <PasswordHints />
 

@@ -38,7 +38,7 @@ export default function Notices() {
       <div className="max-w-2xl mx-auto">
         <div className="flex items-center justify-between gap-4 mb-6">
           <Link to="/events" className="text-[15px] text-[#f56772] hover:opacity-80 inline-block">
-            ← Back to events
+            ← Back
           </Link>
           <Link
             to="/notices/create"
