@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { Form, Link, useLoaderData, useActionData } from "react-router";
 import type { Route } from "./+types/events.$eventId";
 import { isAdmin, requireAdmin, requireVerifiedUser } from "~/lib/auth.server";
-import { getDb, updateEvent, isEventEnded, isEventStarted, isSaturdayEvent, type Event } from "~/lib/db";
+import { getDb, updateEvent, isEventEnded, isEventStarted, isSaturdayEvent, getEventHosts, setEventHost, type Event } from "~/lib/db";
 import { DEFAULT_PROFILE_EMOJI } from "~/lib/emoji";
 
 export function meta({}: Route.MetaArgs) {
@@ -43,6 +43,8 @@ export async function loader({ request, params }: { request: Request; params: Pr
     )
     .get(user.id, id, today) as { c: number };
   const isFirstTimer = attended.c === 0;
+  const hosts = getEventHosts(db, id);
+  const userIsHost = hosts.some((h) => h.id === user.id);
   return {
     event,
     signups,
@@ -52,6 +54,8 @@ export async function loader({ request, params }: { request: Request; params: Pr
     eventEnded,
     eventStarted,
     isFirstTimer,
+    hosts,
+    userIsHost,
   };
 }
 
@@ -92,7 +96,7 @@ export async function action({ request, params }: { request: Request; params: Pr
   }
 
   if (intent === "edit") {
-    await requireAdmin(request);
+    const admin = await requireAdmin(request);
     const event_date = formData.get("event_date");
     const title = formData.get("title");
     const description = formData.get("description");
@@ -105,6 +109,8 @@ export async function action({ request, params }: { request: Request; params: Pr
       ...(location !== undefined && { location: location === "" ? null : String(location).trim() || null }),
       ...(time !== undefined && { time: time === "" ? null : String(time).trim() || null }),
     });
+    // Admins can add/remove themselves as a host of this event.
+    setEventHost(db, id, admin.id, formData.get("host_self") === "on");
     return { editSuccess: true };
   }
 
@@ -126,6 +132,18 @@ function signupDisplayName(s: { first_name: string | null; last_name: string | n
   return name || s.username;
 }
 
+/** Full name for a host; if none is set, humanize the username (ArranGravestock → Arran Gravestock). */
+function hostDisplayName(h: { first_name: string | null; last_name: string | null; username: string }) {
+  const name = [h.first_name, h.last_name].filter(Boolean).join(" ").trim();
+  if (name) return name;
+  return h.username
+    .replace(/[_-]+/g, " ")
+    .replace(/([a-z])([A-Z])/g, "$1 $2")
+    .replace(/\s+/g, " ")
+    .trim()
+    .replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
 function formatSignupTime(unixSeconds: number) {
   const d = new Date(unixSeconds * 1000);
   return d.toLocaleString("en-GB", {
@@ -143,7 +161,7 @@ function formatDate(isoDate: string) {
 }
 
 export default function EventDetail() {
-  const { event, signups, userSignedUp, currentUserGuestCount, isAdmin, eventEnded, eventStarted, isFirstTimer } = useLoaderData<typeof loader>();
+  const { event, signups, userSignedUp, currentUserGuestCount, isAdmin, eventEnded, eventStarted, isFirstTimer, hosts, userIsHost } = useLoaderData<typeof loader>();
   const actionData = useActionData<typeof action>();
   const [signupModalOpen, setSignupModalOpen] = useState(false);
   const [signupConfirmModalOpen, setSignupConfirmModalOpen] = useState(false);
@@ -277,6 +295,15 @@ export default function EventDetail() {
               className={inputClass}
               aria-label="Description"
             />
+            <label className="flex items-center gap-2.5 text-[15px] text-neutral-700 dark:text-neutral-300 py-1">
+              <input
+                type="checkbox"
+                name="host_self"
+                defaultChecked={userIsHost}
+                className="rounded border-neutral-300 dark:border-neutral-600 text-[#f56772] focus:ring-[#f56772]"
+              />
+              I&apos;m hosting this event
+            </label>
             <button
               type="submit"
               className="rounded-xl bg-[#f56772] px-4 py-2.5 text-[15px] font-medium text-white hover:opacity-90"
@@ -295,9 +322,27 @@ export default function EventDetail() {
             <p className="text-[15px] text-neutral-500 dark:text-neutral-400 mb-1.5">
               {location}
             </p>
-            <p className="text-[15px] text-neutral-500 dark:text-neutral-400 mb-6">
+            <p className="text-[15px] text-neutral-500 dark:text-neutral-400 mb-4">
               {description}
             </p>
+            {hosts.length > 0 && (
+              <div className="mb-6 flex flex-wrap items-center gap-x-2 gap-y-1.5">
+                <span className="text-[13px] font-medium text-neutral-500 dark:text-neutral-400">
+                  Hosted by
+                </span>
+                {hosts.map((h) => (
+                  <span
+                    key={h.id}
+                    className="inline-flex items-center gap-1.5 rounded-full bg-neutral-100 dark:bg-neutral-700/60 pl-1 pr-2.5 py-0.5 text-[13px] font-medium text-neutral-700 dark:text-neutral-200"
+                  >
+                    <span className="inline-grid place-items-center w-5 h-5 text-[13px] leading-none" aria-hidden>
+                      {h.profile_emoji || DEFAULT_PROFILE_EMOJI}
+                    </span>
+                    {hostDisplayName(h)}
+                  </span>
+                ))}
+              </div>
+            )}
           </>
         )}
         <div className="mb-8 rounded-2xl overflow-hidden bg-neutral-200/80 dark:bg-neutral-700/60 aspect-[21/9] flex items-center justify-center shadow-inner ring-1 ring-neutral-200/60 dark:ring-neutral-600/40">

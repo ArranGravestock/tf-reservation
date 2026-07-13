@@ -39,6 +39,12 @@ function createDb(): Database.Database {
     CREATE INDEX IF NOT EXISTS idx_signups_event ON event_signups(event_id);
     CREATE INDEX IF NOT EXISTS idx_signups_user ON event_signups(user_id);
 
+    CREATE TABLE IF NOT EXISTS event_hosts (
+      event_id INTEGER NOT NULL REFERENCES events(id) ON DELETE CASCADE,
+      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      PRIMARY KEY (event_id, user_id)
+    );
+
     CREATE TABLE IF NOT EXISTS notices (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       event_id INTEGER NOT NULL REFERENCES events(id) ON DELETE CASCADE,
@@ -302,6 +308,62 @@ export function updateEvent(
   if (fields.length === 0) return;
   values.push(eventId);
   db.prepare(`UPDATE events SET ${fields.join(", ")} WHERE id = ?`).run(...values);
+}
+
+/** Usernames that host every event by default (case-insensitive). */
+export const DEFAULT_HOST_USERNAMES = ["ArranGravestock", "Joel_Okoro"];
+
+export type HostUser = {
+  id: number;
+  username: string;
+  first_name: string | null;
+  last_name: string | null;
+  profile_emoji: string | null;
+};
+
+/**
+ * Hosts for an event: the default host users plus any admins who added
+ * themselves via `event_hosts`. Default hosts are listed first, in order.
+ */
+export function getEventHosts(db: Database.Database, eventId: number): HostUser[] {
+  const defaultPlaceholders = DEFAULT_HOST_USERNAMES.map(() => "LOWER(?)").join(", ");
+  const rows = db
+    .prepare(
+      `SELECT id, username, first_name, last_name, profile_emoji FROM users
+       WHERE LOWER(username) IN (${defaultPlaceholders})
+          OR id IN (SELECT user_id FROM event_hosts WHERE event_id = ?)`
+    )
+    .all(...DEFAULT_HOST_USERNAMES, eventId) as HostUser[];
+  const defaultOrder = DEFAULT_HOST_USERNAMES.map((u) => u.toLowerCase());
+  return rows.sort((a, b) => {
+    const ai = defaultOrder.indexOf(a.username.toLowerCase());
+    const bi = defaultOrder.indexOf(b.username.toLowerCase());
+    const ar = ai === -1 ? defaultOrder.length : ai;
+    const br = bi === -1 ? defaultOrder.length : bi;
+    if (ar !== br) return ar - br;
+    return a.username.localeCompare(b.username);
+  });
+}
+
+/** True if the user is a host of the event (default host or added themselves). */
+export function isEventHost(db: Database.Database, eventId: number, userId: number): boolean {
+  return getEventHosts(db, eventId).some((h) => h.id === userId);
+}
+
+/** Add or remove a user as an event host (via the event_hosts table). */
+export function setEventHost(
+  db: Database.Database,
+  eventId: number,
+  userId: number,
+  isHost: boolean
+): void {
+  if (isHost) {
+    db.prepare(
+      "INSERT OR IGNORE INTO event_hosts (event_id, user_id) VALUES (?, ?)"
+    ).run(eventId, userId);
+  } else {
+    db.prepare("DELETE FROM event_hosts WHERE event_id = ? AND user_id = ?").run(eventId, userId);
+  }
 }
 
 export type Notice = {
