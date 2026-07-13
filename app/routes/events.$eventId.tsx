@@ -81,6 +81,20 @@ export async function action({ request, params }: { request: Request; params: Pr
     return { unsignup: true };
   }
 
+  if (intent === "admin_remove_signups") {
+    await requireAdmin(request);
+    const userIds = formData
+      .getAll("userId")
+      .map((v) => parseInt(String(v), 10))
+      .filter((n) => !Number.isNaN(n));
+    let removed = 0;
+    const stmt = db.prepare("DELETE FROM event_signups WHERE event_id = ? AND user_id = ?");
+    for (const uid of userIds) {
+      removed += stmt.run(id, uid).changes;
+    }
+    return { adminRemoved: removed };
+  }
+
   if (intent === "update_guests") {
     if (started) return { error: "This event has already started. Sign-ups are closed." };
     if (ended) return { error: "This event has ended." };
@@ -170,6 +184,36 @@ export default function EventDetail() {
   const [guestCount, setGuestCount] = useState(0);
   const [signupSearch, setSignupSearch] = useState("");
   const [isEditing, setIsEditing] = useState(false);
+  const [selectedSignupIds, setSelectedSignupIds] = useState<Set<number>>(new Set());
+
+  const filteredSignups = signups.filter((s) => {
+    const q = signupSearch.trim().toLowerCase();
+    if (!q) return true;
+    return signupDisplayName(s).toLowerCase().includes(q) || s.username.toLowerCase().includes(q);
+  });
+  const allFilteredSelected =
+    filteredSignups.length > 0 && filteredSignups.every((s) => selectedSignupIds.has(s.id));
+
+  function toggleSignupSelected(userId: number) {
+    setSelectedSignupIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(userId)) next.delete(userId);
+      else next.add(userId);
+      return next;
+    });
+  }
+  function toggleSelectAllSignups() {
+    setSelectedSignupIds((prev) => {
+      if (filteredSignups.every((s) => prev.has(s.id))) {
+        const next = new Set(prev);
+        filteredSignups.forEach((s) => next.delete(s.id));
+        return next;
+      }
+      const next = new Set(prev);
+      filteredSignups.forEach((s) => next.add(s.id));
+      return next;
+    });
+  }
 
   useEffect(() => {
     if (actionData && "editSuccess" in actionData && actionData.editSuccess) {
@@ -188,7 +232,14 @@ export default function EventDetail() {
       setSignupConfirmModalOpen(false);
       setSignupConfirmIsEditMode(false);
     }
+    if (actionData && "adminRemoved" in actionData) {
+      setSelectedSignupIds(new Set());
+    }
   }, [actionData]);
+
+  useEffect(() => {
+    if (!signupModalOpen) setSelectedSignupIds(new Set());
+  }, [signupModalOpen]);
 
   const title = event.title?.trim() || DEFAULT_TITLE;
   const description = event.description?.trim() || DEFAULT_DESCRIPTION;
@@ -500,7 +551,7 @@ export default function EventDetail() {
                   ×
                 </button>
               </div>
-              <div className="p-4 shrink-0">
+              <div className="p-4 shrink-0 space-y-3">
                 <input
                   type="search"
                   placeholder="Search by name..."
@@ -508,50 +559,92 @@ export default function EventDetail() {
                   onChange={(e) => setSignupSearch(e.target.value)}
                   className="w-full rounded-xl bg-neutral-100 dark:bg-neutral-700/50 border-0 px-4 py-2.5 text-[15px] text-neutral-900 dark:text-white placeholder-neutral-400 focus:outline-none focus:ring-2 focus:ring-[#f56772]"
                 />
+                {isAdmin && filteredSignups.length > 0 && (
+                  <label className="flex items-center gap-2.5 text-[14px] font-medium text-neutral-600 dark:text-neutral-300">
+                    <input
+                      type="checkbox"
+                      checked={allFilteredSelected}
+                      onChange={toggleSelectAllSignups}
+                      className="rounded border-neutral-300 dark:border-neutral-600 text-[#f56772] focus:ring-[#f56772]"
+                    />
+                    Select all
+                  </label>
+                )}
               </div>
               <ul className="overflow-y-auto flex-1 min-h-0 p-4 pt-0 space-y-2">
-                {signups
-                  .filter((s) => {
-                    const q = signupSearch.trim().toLowerCase();
-                    if (!q) return true;
-                    const display = signupDisplayName(s).toLowerCase();
-                    const username = s.username.toLowerCase();
-                    return display.includes(q) || username.includes(q);
-                  })
-                  .map((s) => (
-                    <li
-                      key={s.id}
-                      className="flex items-center justify-between gap-3 py-2 border-b border-neutral-100 dark:border-neutral-700/50 last:border-0"
-                    >
+                {filteredSignups.map((s) => (
+                  <li
+                    key={s.id}
+                    className="flex items-center justify-between gap-3 py-2 border-b border-neutral-100 dark:border-neutral-700/50 last:border-0"
+                  >
+                    {isAdmin ? (
+                      <span
+                        role="button"
+                        tabIndex={0}
+                        onClick={() => toggleSignupSelected(s.id)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter" || e.key === " ") {
+                            e.preventDefault();
+                            toggleSignupSelected(s.id);
+                          }
+                        }}
+                        aria-pressed={selectedSignupIds.has(s.id)}
+                        aria-label={`Select ${signupDisplayName(s)}`}
+                        className="flex items-center gap-2 text-[15px] text-neutral-900 dark:text-white min-w-0 cursor-pointer select-none rounded-lg -mx-1 px-1 py-0.5 hover:bg-neutral-100 dark:hover:bg-neutral-700/50 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#f56772]"
+                      >
+                        <input
+                          type="checkbox"
+                          checked={selectedSignupIds.has(s.id)}
+                          readOnly
+                          tabIndex={-1}
+                          className="shrink-0 pointer-events-none rounded border-neutral-300 dark:border-neutral-600 text-[#f56772] focus:ring-[#f56772]"
+                        />
+                        <span className="text-xl leading-none shrink-0">
+                          {s.profile_emoji || "👤"}
+                        </span>
+                        <span className="truncate">{signupDisplayName(s)}</span>
+                      </span>
+                    ) : (
                       <span className="flex items-center gap-2 text-[15px] text-neutral-900 dark:text-white min-w-0">
                         <span className="text-xl leading-none shrink-0">
                           {s.profile_emoji || "👤"}
                         </span>
                         <span className="truncate">{signupDisplayName(s)}</span>
                       </span>
-                      <span className="flex flex-col items-end gap-1 shrink-0">
-                        <span className="text-[13px] text-neutral-500 dark:text-neutral-400">
-                          {formatSignupTime(s.signed_up_at)}
-                        </span>
-                        {(s.guest_count ?? 0) > 0 && (
-                          <span className="inline-flex items-center rounded-full bg-neutral-100 dark:bg-neutral-600/60 px-2.5 py-0.5 text-[12px] font-medium text-neutral-600 dark:text-neutral-300">
-                            +{(s.guest_count ?? 0)} {(s.guest_count ?? 0) === 1 ? "guest" : "guests"}
-                          </span>
-                        )}
+                    )}
+                    <span className="flex flex-col items-end gap-1 shrink-0">
+                      <span className="text-[13px] text-neutral-500 dark:text-neutral-400">
+                        {formatSignupTime(s.signed_up_at)}
                       </span>
-                    </li>
-                  ))}
+                      {(s.guest_count ?? 0) > 0 && (
+                        <span className="inline-flex items-center rounded-full bg-neutral-100 dark:bg-neutral-600/60 px-2.5 py-0.5 text-[12px] font-medium text-neutral-600 dark:text-neutral-300">
+                          +{(s.guest_count ?? 0)} {(s.guest_count ?? 0) === 1 ? "guest" : "guests"}
+                        </span>
+                      )}
+                    </span>
+                  </li>
+                ))}
               </ul>
-              {signups.filter((s) => {
-                const q = signupSearch.trim().toLowerCase();
-                if (!q) return true;
-                const display = signupDisplayName(s).toLowerCase();
-                const username = s.username.toLowerCase();
-                return display.includes(q) || username.includes(q);
-              }).length === 0 && (
+              {filteredSignups.length === 0 && (
                 <p className="px-4 pb-4 text-[15px] text-neutral-500 dark:text-neutral-400">
                   No matches for &quot;{signupSearch}&quot;
                 </p>
+              )}
+              {isAdmin && selectedSignupIds.size > 0 && (
+                <div className="p-4 border-t border-neutral-200/80 dark:border-neutral-700/60 shrink-0">
+                  <Form method="post">
+                    <input type="hidden" name="intent" value="admin_remove_signups" />
+                    {[...selectedSignupIds].map((uid) => (
+                      <input key={uid} type="hidden" name="userId" value={uid} />
+                    ))}
+                    <button
+                      type="submit"
+                      className="w-full rounded-xl bg-red-500/10 px-4 py-2.5 text-[15px] font-medium text-red-600 dark:text-red-400 hover:bg-red-500/20 transition-colors"
+                    >
+                      Mark as not attending ({selectedSignupIds.size})
+                    </button>
+                  </Form>
+                </div>
               )}
             </div>
           </div>
