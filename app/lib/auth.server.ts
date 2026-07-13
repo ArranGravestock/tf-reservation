@@ -61,11 +61,15 @@ export async function requireAdmin(request: Request): Promise<User> {
 
 export async function login(
   request: Request,
-  username: string,
+  identifier: string,
   password: string
 ): Promise<{ error: string } | { headers: Headers }> {
   const db = getDb();
-  const user = db.prepare("SELECT * FROM users WHERE username = ?").get(username) as User | undefined;
+  // Accept either a username or an email address (both case-insensitive).
+  const normalized = identifier.trim().toLowerCase();
+  const user = db
+    .prepare("SELECT * FROM users WHERE LOWER(username) = ? OR LOWER(email) = ?")
+    .get(normalized, normalized) as User | undefined;
   if (!user) return { error: "Invalid username or password" };
   const ok = await verifyPassword(password, user.password_hash);
   if (!ok) return { error: "Invalid username or password" };
@@ -200,7 +204,10 @@ export async function updateUserProfile(
   if (options.username !== undefined) {
     const u = String(options.username).trim();
     if (u.length < 2) return { error: "Username must be at least 2 characters." };
-    if (u !== user.username && db.prepare("SELECT 1 FROM users WHERE username = ?").get(u)) {
+    if (
+      u.toLowerCase() !== user.username.toLowerCase() &&
+      db.prepare("SELECT 1 FROM users WHERE LOWER(username) = LOWER(?)").get(u)
+    ) {
       return { error: "Username is already taken." };
     }
     db.prepare("UPDATE users SET username = ? WHERE id = ?").run(u, userId);

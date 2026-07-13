@@ -100,6 +100,25 @@ function createDb(): Database.Database {
     db.exec("UPDATE users SET ever_verified = 1 WHERE email_verified = 1");
   }
 
+  // Enforce case-insensitive uniqueness for usernames and emails at the DB level
+  // (the app also checks with LOWER(), but these indexes guard against races and
+  // direct writes). Wrapped because index creation fails if the existing data
+  // already contains case-variant duplicates — in that case they must be
+  // reconciled manually before the constraint can apply.
+  try {
+    db.exec(
+      "CREATE UNIQUE INDEX IF NOT EXISTS idx_users_username_nocase ON users(username COLLATE NOCASE)"
+    );
+    db.exec(
+      "CREATE UNIQUE INDEX IF NOT EXISTS idx_users_email_nocase ON users(email COLLATE NOCASE)"
+    );
+  } catch (err) {
+    console.error(
+      "[db] Could not create case-insensitive unique indexes (existing case-variant duplicates?):",
+      err
+    );
+  }
+
   // Bootstrap admins from the ADMIN_USERNAMES env var (comma-separated). Runs on
   // startup so the first admin can be granted with a Railway variable alone —
   // no shell access needed. Idempotent; only promotes existing users, never

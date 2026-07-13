@@ -19,7 +19,7 @@ export async function action({ request }: { request: Request }) {
   const username = String(formData.get("username") ?? "").trim();
   const password = String(formData.get("password") ?? "");
   if (!username || !password) {
-    return { error: "Username and password are required." };
+    return { error: "Username or email and password are required." };
   }
   const result = await login(request, username, password);
   if ("error" in result) return { error: result.error };
@@ -68,7 +68,7 @@ export default function Login() {
           )}
           <div>
             <label htmlFor="username" className="block text-[13px] font-medium text-neutral-500 dark:text-neutral-400 mb-1.5">
-              Username
+              Username or email
             </label>
             <input
               id="username"
@@ -77,7 +77,7 @@ export default function Login() {
               autoComplete="username"
               required
               className="w-full rounded-xl bg-neutral-100 dark:bg-neutral-700/50 border-0 px-4 py-3 text-[17px] text-neutral-900 dark:text-white placeholder-neutral-400 focus:outline-none focus:ring-2 focus:ring-[#f56772] focus:ring-offset-2 dark:focus:ring-offset-neutral-800"
-              placeholder="Your username"
+              placeholder="Your username or email"
             />
           </div>
           <div>
