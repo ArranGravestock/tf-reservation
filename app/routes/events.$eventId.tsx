@@ -32,6 +32,17 @@ export async function loader({ request, params }: { request: Request; params: Pr
   const currentUserSignup = signups.find((s) => s.id === user.id);
   const eventEnded = isEventEnded(event);
   const eventStarted = isEventStarted(event);
+  // First-timer: the user has never attended (signed up for) a past event other
+  // than this one.
+  const today = new Date().toISOString().slice(0, 10);
+  const attended = db
+    .prepare(
+      `SELECT COUNT(*) AS c FROM event_signups s
+       JOIN events e ON e.id = s.event_id
+       WHERE s.user_id = ? AND e.id != ? AND e.event_date < ?`
+    )
+    .get(user.id, id, today) as { c: number };
+  const isFirstTimer = attended.c === 0;
   return {
     event,
     signups,
@@ -40,6 +51,7 @@ export async function loader({ request, params }: { request: Request; params: Pr
     isAdmin: isAdmin(user),
     eventEnded,
     eventStarted,
+    isFirstTimer,
   };
 }
 
@@ -131,7 +143,7 @@ function formatDate(isoDate: string) {
 }
 
 export default function EventDetail() {
-  const { event, signups, userSignedUp, currentUserGuestCount, isAdmin, eventEnded, eventStarted } = useLoaderData<typeof loader>();
+  const { event, signups, userSignedUp, currentUserGuestCount, isAdmin, eventEnded, eventStarted, isFirstTimer } = useLoaderData<typeof loader>();
   const actionData = useActionData<typeof action>();
   const [signupModalOpen, setSignupModalOpen] = useState(false);
   const [signupConfirmModalOpen, setSignupConfirmModalOpen] = useState(false);
@@ -512,9 +524,16 @@ export default function EventDetail() {
               className="bg-white dark:bg-neutral-800 rounded-3xl shadow-xl max-w-md w-full p-6 border border-neutral-200/80 dark:border-neutral-700/60"
               onClick={(e) => e.stopPropagation()}
             >
-              <h3 id="signup-confirm-modal-title" className="text-[17px] font-semibold text-neutral-900 dark:text-white mb-2">
-                {signupConfirmIsEditMode ? "Edit attendance" : "Sign up for this event"}
-              </h3>
+              <div className="flex items-center gap-2 mb-2">
+                <h3 id="signup-confirm-modal-title" className="text-[17px] font-semibold text-neutral-900 dark:text-white">
+                  {signupConfirmIsEditMode ? "Edit attendance" : "Sign up for this event"}
+                </h3>
+                {isFirstTimer && signupConfirmIsEditMode && (
+                  <span className="inline-flex items-center rounded-full bg-[#f56772]/15 px-2.5 py-0.5 text-[12px] font-medium text-[#f56772]">
+                    First time
+                  </span>
+                )}
+              </div>
               {signupConfirmIsEditMode ? (
                 <>
                   <p className="text-[15px] text-neutral-600 dark:text-neutral-300 mb-4">
