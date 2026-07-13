@@ -7,7 +7,7 @@ import { DEFAULT_PROFILE_EMOJI } from "~/lib/emoji";
 import { SessionImage } from "~/components/SessionImage";
 
 export function meta({}: Route.MetaArgs) {
-  return [{ title: "Saturday events – Terrible Football Liverpool" }];
+  return [{ title: "Events – Terrible Football Liverpool" }];
 }
 
 const LOCATION = "Wavertree Botanic Gardens, Edge Lane, Innovation Boulevard, Liverpool";
@@ -24,7 +24,7 @@ export async function loader({ request }: { request: Request }) {
        COUNT(s.id) + COALESCE(SUM(s.guest_count), 0) as signup_count
      FROM events e
      LEFT JOIN event_signups s ON s.event_id = e.id
-     WHERE strftime('%w', e.event_date) = '6'
+     WHERE strftime('%w', e.event_date) IN ('6', '3') AND e.cancelled = 0
      GROUP BY e.id
      ORDER BY e.event_date ASC`
   ).all() as (Event & { signup_count: number | string })[];
@@ -286,7 +286,7 @@ export default function EventsIndex() {
       <div className="max-w-2xl lg:max-w-5xl mx-auto">
         <div className="flex flex-wrap items-center justify-between gap-4 mb-4">
           <h1 className="text-[28px] font-semibold text-neutral-900 dark:text-white">
-            Saturday events
+            Events
           </h1>
           <button
             type="button"
@@ -304,7 +304,7 @@ export default function EventsIndex() {
           </button>
         </div>
         <p className="text-[15px] text-neutral-500 dark:text-neutral-400 mb-4">
-          Pick an event to sign up. New events are created automatically every Saturday.
+          Pick an event to sign up. New events are created automatically every Saturday and Wednesday.
         </p>
         {actionData?.bulkUnsignup && (
           <p className="rounded-2xl bg-neutral-200/80 dark:bg-neutral-700/50 text-neutral-800 dark:text-neutral-200 px-4 py-3 mb-4 text-[15px]">

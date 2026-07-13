@@ -83,6 +83,10 @@ function createDb(): Database.Database {
     }
     eventCols = db.prepare("PRAGMA table_info(events)").all() as { name: string }[];
   }
+  eventCols = db.prepare("PRAGMA table_info(events)").all() as { name: string }[];
+  if (!eventCols.some((c) => c.name === "cancelled")) {
+    db.exec("ALTER TABLE events ADD COLUMN cancelled INTEGER NOT NULL DEFAULT 0");
+  }
   const signupCols = db.prepare("PRAGMA table_info(event_signups)").all() as { name: string }[];
   if (!signupCols.some((c) => c.name === "guest_count")) {
     db.exec("ALTER TABLE event_signups ADD COLUMN guest_count INTEGER NOT NULL DEFAULT 0");
@@ -170,6 +174,7 @@ export type Event = {
   description?: string | null;
   location?: string | null;
   time?: string | null;
+  cancelled?: number;
 };
 
 const DEFAULT_EVENT_HOUR = 10;
@@ -246,16 +251,31 @@ export function initDb(): Database.Database {
   return _db;
 }
 
-export function getNextSaturdays(count: number): string[] {
+// Weekdays that have recurring events, with their default start time.
+// day: 0=Sun … 6=Sat. cutoff is the time after which "today" rolls to next week.
+const RECURRING_EVENT_DAYS = [
+  { day: 6, time: null as string | null, cutoffHour: 12, cutoffMinute: 0 }, // Saturday, 10:30am default
+  { day: 3, time: "6:20pm", cutoffHour: 18, cutoffMinute: 20 }, // Wednesday, 6:20pm
+];
+
+/** Upcoming dates (YYYY-MM-DD) for a given weekday, skipping today if past the cutoff. */
+function getNextWeekdayDates(
+  count: number,
+  targetDay: number,
+  cutoffHour: number,
+  cutoffMinute: number
+): string[] {
   const dates: string[] = [];
   const now = new Date();
-  let d = new Date(now);
-  const day = d.getDay();
-  const daysUntilSaturday = (6 - day + 7) % 7;
-  if (daysUntilSaturday === 0 && d.getHours() >= 12) {
+  const d = new Date(now);
+  const daysUntil = (targetDay - d.getDay() + 7) % 7;
+  const pastCutoff =
+    now.getHours() > cutoffHour ||
+    (now.getHours() === cutoffHour && now.getMinutes() >= cutoffMinute);
+  if (daysUntil === 0 && pastCutoff) {
     d.setDate(d.getDate() + 7);
   } else {
-    d.setDate(d.getDate() + (daysUntilSaturday || 7));
+    d.setDate(d.getDate() + (daysUntil || 7));
   }
   for (let i = 0; i < count; i++) {
     dates.push(d.toISOString().slice(0, 10));
@@ -264,12 +284,34 @@ export function getNextSaturdays(count: number): string[] {
   return dates;
 }
 
-export function ensureSaturdayEvents(db: Database.Database, count = 12) {
-  const saturdays = getNextSaturdays(count);
-  const insert = db.prepare("INSERT OR IGNORE INTO events (event_date) VALUES (?)");
-  for (const date of saturdays) {
-    insert.run(date);
+export function getNextSaturdays(count: number): string[] {
+  return getNextWeekdayDates(count, 6, 12, 0);
+}
+
+/** Ensure the next `count` occurrences of every recurring event day exist. */
+export function ensureRecurringEvents(db: Database.Database, count = 12) {
+  const withTime = db.prepare("INSERT OR IGNORE INTO events (event_date, time) VALUES (?, ?)");
+  const withoutTime = db.prepare("INSERT OR IGNORE INTO events (event_date) VALUES (?)");
+  for (const cfg of RECURRING_EVENT_DAYS) {
+    const dates = getNextWeekdayDates(count, cfg.day, cfg.cutoffHour, cfg.cutoffMinute);
+    for (const date of dates) {
+      if (cfg.time) withTime.run(date, cfg.time);
+      else withoutTime.run(date);
+    }
   }
+}
+
+/** Back-compat wrapper: ensures all recurring (Saturday + Wednesday) events. */
+export function ensureSaturdayEvents(db: Database.Database, count = 12) {
+  ensureRecurringEvents(db, count);
+}
+
+/** True if the date falls on a recurring event day (Saturday or Wednesday). */
+export function isEventDate(eventDate: string): boolean {
+  const [y, m, d] = eventDate.split("-").map(Number);
+  if (!y || !m || !d) return false;
+  const day = new Date(y, m - 1, d, 12, 0, 0, 0).getDay();
+  return RECURRING_EVENT_DAYS.some((cfg) => cfg.day === day);
 }
 
 export function updateEvent(

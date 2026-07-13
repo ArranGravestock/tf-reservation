@@ -1,8 +1,8 @@
 import { useEffect, useState } from "react";
-import { Form, Link, useLoaderData, useActionData } from "react-router";
+import { Form, Link, redirect, useLoaderData, useActionData } from "react-router";
 import type { Route } from "./+types/events.$eventId";
 import { isAdmin, requireAdmin, requireVerifiedUser } from "~/lib/auth.server";
-import { getDb, updateEvent, isEventEnded, isEventStarted, isSaturdayEvent, getEventHosts, setEventHost, type Event } from "~/lib/db";
+import { getDb, updateEvent, isEventEnded, isEventStarted, isEventDate, getEventHosts, setEventHost, type Event } from "~/lib/db";
 import { DEFAULT_PROFILE_EMOJI } from "~/lib/emoji";
 
 export function meta({}: Route.MetaArgs) {
@@ -10,7 +10,6 @@ export function meta({}: Route.MetaArgs) {
 }
 
 const DEFAULT_TITLE = "Terrible Football Liverpool";
-const DEFAULT_DESCRIPTION = "Saturday football event";
 const DEFAULT_LOCATION = "Wavertree Botanic Gardens, Edge Lane, Innovation Boulevard, Liverpool";
 const DEFAULT_TIME = "10:30am";
 
@@ -21,10 +20,11 @@ export async function loader({ request, params }: { request: Request; params: Pr
   if (Number.isNaN(id)) throw new Response("Not found", { status: 404 });
   const db = getDb();
   const event = db
-    .prepare("SELECT id, event_date, created_at, title, description, location, time FROM events WHERE id = ?")
+    .prepare("SELECT id, event_date, created_at, title, description, location, time, cancelled FROM events WHERE id = ?")
     .get(id) as Event | undefined;
   if (!event) throw new Response("Not found", { status: 404 });
-  if (!isSaturdayEvent(event.event_date)) throw new Response("Not found", { status: 404 });
+  if (!isEventDate(event.event_date)) throw new Response("Not found", { status: 404 });
+  if (event.cancelled) throw new Response("Not found", { status: 404 });
   const signups = db.prepare(
     `SELECT u.id, u.username, u.first_name, u.last_name, u.profile_emoji, s.created_at as signed_up_at, COALESCE(s.guest_count, 0) as guest_count FROM event_signups s JOIN users u ON u.id = s.user_id WHERE s.event_id = ? ORDER BY s.created_at ASC`
   ).all(id) as { id: number; username: string; first_name: string | null; last_name: string | null; profile_emoji: string | null; signed_up_at: number; guest_count: number }[];
@@ -68,7 +68,7 @@ export async function action({ request, params }: { request: Request; params: Pr
     | { id: number; event_date: string; time: string | null }
     | undefined;
   if (!event) return { error: "Event not found" };
-  if (!isSaturdayEvent(event.event_date)) return { error: "Event not found" };
+  if (!isEventDate(event.event_date)) return { error: "Event not found" };
   const ended = isEventEnded(event);
   const started = isEventStarted(event);
 
@@ -93,6 +93,12 @@ export async function action({ request, params }: { request: Request; params: Pr
       removed += stmt.run(id, uid).changes;
     }
     return { adminRemoved: removed };
+  }
+
+  if (intent === "cancel") {
+    await requireAdmin(request);
+    db.prepare("UPDATE events SET cancelled = 1 WHERE id = ?").run(id);
+    return redirect("/events");
   }
 
   if (intent === "update_guests") {
@@ -242,7 +248,7 @@ export default function EventDetail() {
   }, [signupModalOpen]);
 
   const title = event.title?.trim() || DEFAULT_TITLE;
-  const description = event.description?.trim() || DEFAULT_DESCRIPTION;
+  const description = event.description?.trim() ?? "";
   const location = event.location?.trim() || DEFAULT_LOCATION;
   const time = event.time?.trim() || DEFAULT_TIME;
 
@@ -342,7 +348,7 @@ export default function EventDetail() {
               type="text"
               name="description"
               defaultValue={event.description ?? ""}
-              placeholder={DEFAULT_DESCRIPTION}
+              placeholder="Description (optional)"
               className={inputClass}
               aria-label="Description"
             />
@@ -355,11 +361,32 @@ export default function EventDetail() {
               />
               I&apos;m hosting this event
             </label>
+            <div className="flex flex-wrap items-center gap-3">
+              <button
+                type="submit"
+                className="rounded-xl bg-[#f56772] px-4 py-2.5 text-[15px] font-medium text-white hover:opacity-90"
+              >
+                Save changes
+              </button>
+            </div>
+          </Form>
+        ) : null}
+        {isEditing && isAdmin ? (
+          <Form
+            method="post"
+            className="mb-6"
+            onSubmit={(e) => {
+              if (!confirm("Cancel this event? It will be removed from the events listing.")) {
+                e.preventDefault();
+              }
+            }}
+          >
+            <input type="hidden" name="intent" value="cancel" />
             <button
               type="submit"
-              className="rounded-xl bg-[#f56772] px-4 py-2.5 text-[15px] font-medium text-white hover:opacity-90"
+              className="rounded-xl border border-red-300 dark:border-red-500/40 px-4 py-2.5 text-[15px] font-medium text-red-600 dark:text-red-400 hover:bg-red-500/10 transition-colors"
             >
-              Save changes
+              Cancel event
             </button>
           </Form>
         ) : (
@@ -373,9 +400,11 @@ export default function EventDetail() {
             <p className="text-[15px] text-neutral-500 dark:text-neutral-400 mb-1.5">
               {location}
             </p>
-            <p className="text-[15px] text-neutral-500 dark:text-neutral-400 mb-4">
-              {description}
-            </p>
+            {description && (
+              <p className="text-[15px] text-neutral-500 dark:text-neutral-400 mb-4">
+                {description}
+              </p>
+            )}
             {hosts.length > 0 && (
               <div className="mb-6 flex flex-wrap items-center gap-x-2 gap-y-1.5">
                 <span className="text-[13px] font-medium text-neutral-500 dark:text-neutral-400">

@@ -11,9 +11,12 @@ export async function loader({ request }: Route.LoaderArgs) {
   await requireAdmin(request);
   const db = getDb();
   ensureSaturdayEvents(db, 12);
+  const today = new Date().toISOString().slice(0, 10);
   const events = db
-    .prepare("SELECT id, event_date, title FROM events ORDER BY event_date ASC")
-    .all() as (Pick<Event, "id" | "event_date"> & { title?: string | null })[];
+    .prepare(
+      "SELECT id, event_date, title FROM events WHERE event_date >= ? AND cancelled = 0 ORDER BY event_date ASC"
+    )
+    .all(today) as (Pick<Event, "id" | "event_date"> & { title?: string | null })[];
   return { events };
 }
 
