@@ -162,7 +162,7 @@ export default function Settings() {
           to="/events"
           className="text-[15px] text-[#f56772] hover:opacity-80 mb-6 inline-block"
         >
-          ← Back to sessions
+          ← Back to events
         </Link>
         <h1 className="text-[28px] font-semibold text-neutral-900 dark:text-white mb-2">
           Settings
@@ -270,7 +270,7 @@ export default function Settings() {
               required
               defaultValue={user.firstName ?? ""}
               className="w-full rounded-xl bg-neutral-100 dark:bg-neutral-700/50 border-0 px-4 py-3 text-[17px] text-neutral-900 dark:text-white placeholder-neutral-400 focus:outline-none focus:ring-2 focus:ring-[#f56772] focus:ring-offset-2 dark:focus:ring-offset-neutral-800"
-              placeholder="Your first name"
+              placeholder="Jordan"
             />
           </div>
 
@@ -286,7 +286,7 @@ export default function Settings() {
               required
               defaultValue={user.lastName ?? ""}
               className="w-full rounded-xl bg-neutral-100 dark:bg-neutral-700/50 border-0 px-4 py-3 text-[17px] text-neutral-900 dark:text-white placeholder-neutral-400 focus:outline-none focus:ring-2 focus:ring-[#f56772] focus:ring-offset-2 dark:focus:ring-offset-neutral-800"
-              placeholder="Your last name"
+              placeholder="Taylor"
             />
           </div>
 
@@ -343,6 +343,7 @@ export default function Settings() {
               type="email"
               autoComplete="email"
               defaultValue={user.email}
+              placeholder="you@example.com"
               className="w-full rounded-xl bg-neutral-100 dark:bg-neutral-700/50 border-0 px-4 py-3 text-[17px] text-neutral-900 dark:text-white placeholder-neutral-400 focus:outline-none focus:ring-2 focus:ring-[#f56772] focus:ring-offset-2 dark:focus:ring-offset-neutral-800"
             />
             <p className="mt-1.5 text-[13px] text-neutral-500 dark:text-neutral-400">
@@ -361,7 +362,7 @@ export default function Settings() {
               autoComplete="current-password"
               required
               className="w-full rounded-xl bg-neutral-100 dark:bg-neutral-700/50 border-0 px-4 py-3 text-[17px] text-neutral-900 dark:text-white placeholder-neutral-400 focus:outline-none focus:ring-2 focus:ring-[#f56772] focus:ring-offset-2 dark:focus:ring-offset-neutral-800"
-              placeholder="Current password"
+              placeholder="amber-dolphin-nest-54"
             />
           </div>
 
@@ -401,7 +402,7 @@ export default function Settings() {
               type="password"
               autoComplete="current-password"
               className="w-full rounded-xl bg-neutral-100 dark:bg-neutral-700/50 border-0 px-4 py-3 text-[17px] text-neutral-900 dark:text-white placeholder-neutral-400 focus:outline-none focus:ring-2 focus:ring-[#f56772] focus:ring-offset-2 dark:focus:ring-offset-neutral-800"
-              placeholder="Current password"
+              placeholder="copper-willow-comet-39"
             />
           </div>
 
@@ -417,7 +418,7 @@ export default function Settings() {
               minLength={8}
               maxLength={MAX_PASSWORD_LENGTH}
               className="w-full rounded-xl bg-neutral-100 dark:bg-neutral-700/50 border-0 px-4 py-3 text-[17px] text-neutral-900 dark:text-white placeholder-neutral-400 focus:outline-none focus:ring-2 focus:ring-[#f56772] focus:ring-offset-2 dark:focus:ring-offset-neutral-800"
-              placeholder="At least 8 characters"
+              placeholder="misty-badger-piano-71"
             />
           </div>
 
@@ -431,7 +432,7 @@ export default function Settings() {
               type="password"
               autoComplete="new-password"
               maxLength={MAX_PASSWORD_LENGTH}
-              placeholder="Confirm your new password"
+              placeholder="olive-rocket-pebble-08"
               className="w-full rounded-xl bg-neutral-100 dark:bg-neutral-700/50 border-0 px-4 py-3 text-[17px] text-neutral-900 dark:text-white placeholder-neutral-400 focus:outline-none focus:ring-2 focus:ring-[#f56772] focus:ring-offset-2 dark:focus:ring-offset-neutral-800"
             />
           </div>

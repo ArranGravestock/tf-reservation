@@ -98,7 +98,7 @@ export default function App() {
               {/* Desktop primary links */}
               <div className="hidden lg:flex items-center gap-6">
                 <Link to="/events" className={linkClass}>
-                  Sessions
+                  Events
                 </Link>
                 {user.isAdmin && (
                   <>
@@ -163,7 +163,7 @@ export default function App() {
             >
               <div className="max-w-2xl lg:max-w-5xl mx-auto flex flex-col divide-y divide-neutral-100 dark:divide-neutral-800">
                 <Link to="/events" className={mobileLinkClass} onClick={() => setMobileOpen(false)}>
-                  Sessions
+                  Events
                 </Link>
                 {user.isAdmin && (
                   <>

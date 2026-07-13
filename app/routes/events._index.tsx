@@ -7,7 +7,7 @@ import { DEFAULT_PROFILE_EMOJI } from "~/lib/emoji";
 import { SessionImage } from "~/components/SessionImage";
 
 export function meta({}: Route.MetaArgs) {
-  return [{ title: "Saturday sessions – Terrible Football Liverpool" }];
+  return [{ title: "Saturday events – Terrible Football Liverpool" }];
 }
 
 const LOCATION = "Wavertree Botanic Gardens, Edge Lane, Innovation Boulevard, Liverpool";
@@ -286,7 +286,7 @@ export default function EventsIndex() {
       <div className="max-w-2xl lg:max-w-5xl mx-auto">
         <div className="flex flex-wrap items-center justify-between gap-4 mb-4">
           <h1 className="text-[28px] font-semibold text-neutral-900 dark:text-white">
-            Saturday sessions
+            Saturday events
           </h1>
           <button
             type="button"
@@ -304,11 +304,11 @@ export default function EventsIndex() {
           </button>
         </div>
         <p className="text-[15px] text-neutral-500 dark:text-neutral-400 mb-4">
-          Pick a session to sign up. New events are created automatically every Saturday.
+          Pick an event to sign up. New events are created automatically every Saturday.
         </p>
         {actionData?.bulkUnsignup && (
           <p className="rounded-2xl bg-neutral-200/80 dark:bg-neutral-700/50 text-neutral-800 dark:text-neutral-200 px-4 py-3 mb-4 text-[15px]">
-            Removed from {actionData.removed} {actionData.removed === 1 ? "session" : "sessions"}.
+            Removed from {actionData.removed} {actionData.removed === 1 ? "event" : "events"}.
           </p>
         )}
         <div className="space-y-8">
@@ -360,7 +360,7 @@ export default function EventsIndex() {
         <footer className="fixed bottom-0 left-0 right-0 z-10 border-t border-neutral-200/80 dark:border-neutral-700/60 bg-white dark:bg-neutral-800/95 backdrop-blur-sm">
           <div className="max-w-2xl lg:max-w-5xl mx-auto px-6 py-4 flex flex-wrap items-center justify-end gap-4">
             <span className="text-[15px] text-neutral-700 dark:text-neutral-300">
-              Sign up to {selectedIds.size} session{selectedIds.size !== 1 ? "s" : ""}
+              Sign up to {selectedIds.size} event{selectedIds.size !== 1 ? "s" : ""}
               {idsToUnsignup.length > 0 && ` · Remove from ${idsToUnsignup.length}`}
             </span>
             <Form method="post" className="flex items-center gap-2">

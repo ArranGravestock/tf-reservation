@@ -150,7 +150,7 @@ export default function Signup() {
               autoComplete="given-name"
               required
               className="w-full rounded-xl bg-neutral-100 dark:bg-neutral-700/50 border-0 px-4 py-3 text-[17px] text-neutral-900 dark:text-white placeholder-neutral-400 focus:outline-none focus:ring-2 focus:ring-[#f56772] focus:ring-offset-2 dark:focus:ring-offset-neutral-800"
-              placeholder="Your first name"
+              placeholder="Jordan"
             />
           </div>
           <div>
@@ -164,7 +164,7 @@ export default function Signup() {
               autoComplete="family-name"
               required
               className="w-full rounded-xl bg-neutral-100 dark:bg-neutral-700/50 border-0 px-4 py-3 text-[17px] text-neutral-900 dark:text-white placeholder-neutral-400 focus:outline-none focus:ring-2 focus:ring-[#f56772] focus:ring-offset-2 dark:focus:ring-offset-neutral-800"
-              placeholder="Your last name"
+              placeholder="Taylor"
             />
           </div>
           <div>
@@ -179,7 +179,7 @@ export default function Signup() {
               required
               minLength={2}
               className="w-full rounded-xl bg-neutral-100 dark:bg-neutral-700/50 border-0 px-4 py-3 text-[17px] text-neutral-900 dark:text-white placeholder-neutral-400 focus:outline-none focus:ring-2 focus:ring-[#f56772] focus:ring-offset-2 dark:focus:ring-offset-neutral-800"
-              placeholder="Choose a username"
+              placeholder="jordantaylor"
             />
           </div>
           <div>
@@ -215,7 +215,7 @@ export default function Signup() {
                 minLength={8}
                 maxLength={MAX_PASSWORD_LENGTH}
                 className="w-full rounded-xl bg-neutral-100 dark:bg-neutral-700/50 border-0 px-4 pr-12 py-3 text-[17px] text-neutral-900 dark:text-white placeholder-neutral-400 focus:outline-none focus:ring-2 focus:ring-[#f56772] focus:ring-offset-2 dark:focus:ring-offset-neutral-800"
-                placeholder="At least 8 characters"
+                placeholder="silver-otter-lamp-42"
               />
               <button
                 type="button"
@@ -241,7 +241,7 @@ export default function Signup() {
                 autoComplete="new-password"
                 required
                 maxLength={MAX_PASSWORD_LENGTH}
-                placeholder="Confirm your password"
+                placeholder="brave-cactus-river-17"
                 className="w-full rounded-xl bg-neutral-100 dark:bg-neutral-700/50 border-0 px-4 pr-12 py-3 text-[17px] text-neutral-900 dark:text-white placeholder-neutral-400 focus:outline-none focus:ring-2 focus:ring-[#f56772] focus:ring-offset-2 dark:focus:ring-offset-neutral-800"
               />
               <button

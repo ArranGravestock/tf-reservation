@@ -16,7 +16,7 @@ const FAQ = [
   },
   {
     q: "How long do we play for?",
-    a: "We play three (3) thirty minute (30) halves with around a five (5) minute break in between each. Each session runs approximately from 10:30am to 12:30pm.",
+    a: "We play three (3) thirty minute (30) halves with around a five (5) minute break in between each. Each event runs approximately from 10:30am to 12:30pm.",
   },
   {
     q: "Can I play only one or two halves?",
@@ -24,19 +24,19 @@ const FAQ = [
   },
   {
     q: "Can I only play in goal?",
-    a: "Yes, we try to change the keeper approximately every five (5) minutes. But if you want to play longer, or the entire session in goal that is not a problem.",
+    a: "Yes, we try to change the keeper approximately every five (5) minutes. But if you want to play longer, or the entire event in goal that is not a problem.",
   },
   {
     q: "What's the minimum number of players?",
-    a: "We require a minimum of 10 players. We currently have enough members that it is extremely rare for sessions to be cancelled due to lack of players.",
+    a: "We require a minimum of 10 players. We currently have enough members that it is extremely rare for events to be cancelled due to lack of players.",
   },
   {
     q: "Where do you play?",
     a: "We play at Wavertree Botanic Gardens, it's hard to miss us!",
   },
   {
-    q: "Can I watch a session first?",
-    a: "Yes, we will always encourage people to try a session. If you feel more comfortable watching for a session before joining then that is also fine!",
+    q: "Can I watch an event first?",
+    a: "Yes, we will always encourage people to try an event. If you feel more comfortable watching for an event before joining then that is also fine!",
   },
   {
     q: "Do you charge a fee?",
@@ -47,7 +47,7 @@ const FAQ = [
     a: "Always! Please reach out to one of the organisers. We are looking for people who embrace and demonstrate the Terrible Football values. Attend at least semi regularly and can help out with equipment and setting up pitches before the game.",
   },
   {
-    q: "It's raining - will the session be cancelled?",
+    q: "It's raining - will the event be cancelled?",
     a: "Unlikely! We will still play in the rain - unless it's so bad it prohibits play. Keep an active eye on meet-up and the WhatsApp group in case that changes last minute.",
   },
   {

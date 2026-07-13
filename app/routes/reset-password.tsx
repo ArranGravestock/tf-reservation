@@ -87,7 +87,7 @@ export default function ResetPassword() {
               minLength={8}
               maxLength={MAX_PASSWORD_LENGTH}
               className="w-full rounded-xl bg-neutral-100 dark:bg-neutral-700/50 border-0 px-4 py-3 text-[17px] text-neutral-900 dark:text-white placeholder-neutral-400 focus:outline-none focus:ring-2 focus:ring-[#f56772] focus:ring-offset-2 dark:focus:ring-offset-neutral-800"
-              placeholder="At least 8 characters"
+              placeholder="gentle-falcon-maple-63"
             />
           </div>
           <div>
@@ -106,7 +106,7 @@ export default function ResetPassword() {
               minLength={8}
               maxLength={MAX_PASSWORD_LENGTH}
               className="w-full rounded-xl bg-neutral-100 dark:bg-neutral-700/50 border-0 px-4 py-3 text-[17px] text-neutral-900 dark:text-white placeholder-neutral-400 focus:outline-none focus:ring-2 focus:ring-[#f56772] focus:ring-offset-2 dark:focus:ring-offset-neutral-800"
-              placeholder="Confirm your password"
+              placeholder="quiet-anchor-melon-25"
             />
           </div>
           <button

@@ -6,11 +6,11 @@ import { getDb, updateEvent, isEventEnded, isEventStarted, isSaturdayEvent, type
 import { DEFAULT_PROFILE_EMOJI } from "~/lib/emoji";
 
 export function meta({}: Route.MetaArgs) {
-  return [{ title: "Session – Terrible Football Liverpool" }];
+  return [{ title: "Event – Terrible Football Liverpool" }];
 }
 
 const DEFAULT_TITLE = "Terrible Football Liverpool";
-const DEFAULT_DESCRIPTION = "Saturday football session";
+const DEFAULT_DESCRIPTION = "Saturday football event";
 const DEFAULT_LOCATION = "Wavertree Botanic Gardens, Edge Lane, Innovation Boulevard, Liverpool";
 const DEFAULT_TIME = "10:30am";
 
@@ -66,8 +66,8 @@ export async function action({ request, params }: { request: Request; params: Pr
   }
 
   if (intent === "update_guests") {
-    if (started) return { error: "This session has already started. Sign-ups are closed." };
-    if (ended) return { error: "This session has ended." };
+    if (started) return { error: "This event has already started. Sign-ups are closed." };
+    if (ended) return { error: "This event has ended." };
     const user = await requireVerifiedUser(request);
     const rawGuest = formData.get("guest_count");
     const guestCount = Math.min(5, Math.max(0, typeof rawGuest === "string" ? parseInt(rawGuest, 10) || 0 : 0));
@@ -96,8 +96,8 @@ export async function action({ request, params }: { request: Request; params: Pr
     return { editSuccess: true };
   }
 
-  if (started) return { error: "This session has already started. Sign-ups are closed." };
-  if (ended) return { error: "This session has ended." };
+  if (started) return { error: "This event has already started. Sign-ups are closed." };
+  if (ended) return { error: "This event has ended." };
   const user = await requireVerifiedUser(request);
   const rawGuest = formData.get("guest_count");
   const guestCount = Math.min(5, Math.max(0, typeof rawGuest === "string" ? parseInt(rawGuest, 10) || 0 : 0));
@@ -105,7 +105,7 @@ export async function action({ request, params }: { request: Request; params: Pr
     db.prepare("INSERT INTO event_signups (event_id, user_id, guest_count) VALUES (?, ?, ?)").run(id, user.id, guestCount);
     return { success: true };
   } catch (e) {
-    return { error: "You are already signed up for this session." };
+    return { error: "You are already signed up for this event." };
   }
 }
 
@@ -179,7 +179,7 @@ export default function EventDetail() {
             to="/events"
             className="text-[15px] text-[#f56772] hover:opacity-80 inline-block"
           >
-            ← Back to sessions
+            ← Back to events
           </Link>
           {isAdmin && !isEditing && (
             <button
@@ -208,13 +208,13 @@ export default function EventDetail() {
         )}
         {eventStarted && !eventEnded && (
           <div className="rounded-2xl bg-amber-500/10 dark:bg-amber-500/15 text-amber-800 dark:text-amber-200 px-4 py-3 mb-6 text-[15px] font-medium border border-amber-300/80 dark:border-amber-600/80">
-            This session has already started. Sign-ups are closed.
+            This event has already started. Sign-ups are closed.
           </div>
         )}
 
         {userSignedUp && (
           <div className="rounded-2xl bg-green-500/10 dark:bg-green-500/15 text-green-700 dark:text-green-400 px-4 py-3 mb-6 text-[15px]">
-            You&apos;re signed up for this session
+            You&apos;re signed up for this event
           </div>
         )}
 
@@ -331,7 +331,7 @@ export default function EventDetail() {
               Key info
             </h2>
             <ul className="text-[15px] text-neutral-600 dark:text-neutral-300 space-y-2 list-disc list-inside">
-              <li>This session: {time} at {location}</li>
+              <li>This event: {time} at {location}</li>
               <li>Everyone is welcome — every skill level, gender, sexuality. Just gotta be over 18!</li>
               <li>No one gets upset if we miss a pass… or the ball altogether. Skills vary from old semi-pro players to never kicked a ball. We weren&apos;t fibbing when we said inclusive.</li>
               <li>Hosted at the southern side of Wavertree Botanic Gardens</li>
@@ -513,12 +513,12 @@ export default function EventDetail() {
               onClick={(e) => e.stopPropagation()}
             >
               <h3 id="signup-confirm-modal-title" className="text-[17px] font-semibold text-neutral-900 dark:text-white mb-2">
-                {signupConfirmIsEditMode ? "Edit attendance" : "Sign up for this session"}
+                {signupConfirmIsEditMode ? "Edit attendance" : "Sign up for this event"}
               </h3>
               {signupConfirmIsEditMode ? (
                 <>
                   <p className="text-[15px] text-neutral-600 dark:text-neutral-300 mb-4">
-                    Are you going to this session?
+                    Are you going to this event?
                   </p>
                   <div className="flex items-stretch overflow-hidden rounded-2xl border border-neutral-200 dark:border-neutral-600 bg-neutral-100 dark:bg-neutral-700/50 mb-4 w-full">
                     <button
@@ -579,7 +579,7 @@ export default function EventDetail() {
                   )}
                   {!attendanceGoing && (
                     <p className="text-[15px] text-neutral-500 dark:text-neutral-400 mb-6">
-                      You&apos;ll be removed from the session.
+                      You&apos;ll be removed from the event.
                     </p>
                   )}
                 </>
@@ -632,7 +632,11 @@ export default function EventDetail() {
                       value={attendanceGoing ? "update_guests" : "unsignup"}
                     />
                   )}
-                  <input type="hidden" name="guest_count" value={attendanceGoing ? guestCount : 0} />
+                  <input
+                    type="hidden"
+                    name="guest_count"
+                    value={signupConfirmIsEditMode ? (attendanceGoing ? guestCount : 0) : guestCount}
+                  />
                   <button
                     type="submit"
                     className="rounded-xl bg-[#f56772] px-4 py-2.5 text-[15px] font-medium text-white hover:opacity-90"
@@ -691,8 +695,8 @@ export default function EventDetail() {
             <div className="flex flex-wrap items-center gap-3">
               <span className="text-[15px] font-medium text-green-600 dark:text-green-400">
                 {currentUserGuestCount > 0
-                  ? `You and ${currentUserGuestCount} ${currentUserGuestCount === 1 ? "guest" : "guests"} are signed up for this session`
-                  : "You're signed up for this session"}
+                  ? `You and ${currentUserGuestCount} ${currentUserGuestCount === 1 ? "guest" : "guests"} are signed up for this event`
+                  : "You're signed up for this event"}
               </span>
               {!eventStarted && (
                 <button
@@ -714,12 +718,13 @@ export default function EventDetail() {
               type="button"
               onClick={() => {
                 setSignupConfirmIsEditMode(false);
+                setAttendanceGoing(true);
                 setGuestCount(0);
                 setSignupConfirmModalOpen(true);
               }}
               className="rounded-xl bg-[#f56772] px-5 py-2.5 text-[15px] font-medium text-white hover:opacity-90 active:opacity-80 transition-opacity"
             >
-              Sign up for this session
+              Sign up for this event
             </button>
           )}
         </div>
