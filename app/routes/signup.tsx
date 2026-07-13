@@ -5,6 +5,8 @@ import { getUserId } from "~/lib/auth.server";
 import { hashPassword, createVerificationToken } from "~/lib/auth.server";
 import { getDb } from "~/lib/db";
 import { isEmailConfigured, sendVerificationEmail } from "~/lib/email.server";
+import { validatePassword, MAX_PASSWORD_LENGTH } from "~/lib/password";
+import { PasswordHints } from "~/components/PasswordHints";
 import { ANIMAL_EMOJIS, DEFAULT_PROFILE_EMOJI, isAllowedProfileEmoji } from "~/lib/emoji";
 
 export function meta({}: Route.MetaArgs) {
@@ -43,8 +45,9 @@ export async function action({ request }: { request: Request }) {
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
     return { error: "Please enter a valid email address." };
   }
-  if (password.length < 8) {
-    return { error: "Password must be at least 8 characters." };
+  const passwordError = validatePassword(password, { username, email });
+  if (passwordError) {
+    return { error: passwordError };
   }
   if (password !== confirm) {
     return { error: "Passwords do not match." };
@@ -210,8 +213,9 @@ export default function Signup() {
                 autoComplete="new-password"
                 required
                 minLength={8}
+                maxLength={MAX_PASSWORD_LENGTH}
                 className="w-full rounded-xl bg-neutral-100 dark:bg-neutral-700/50 border-0 px-4 pr-12 py-3 text-[17px] text-neutral-900 dark:text-white placeholder-neutral-400 focus:outline-none focus:ring-2 focus:ring-[#f56772] focus:ring-offset-2 dark:focus:ring-offset-neutral-800"
-                placeholder="Choose your password"
+                placeholder="At least 8 characters"
               />
               <button
                 type="button"
@@ -236,6 +240,7 @@ export default function Signup() {
                 type={showConfirmPassword ? "text" : "password"}
                 autoComplete="new-password"
                 required
+                maxLength={MAX_PASSWORD_LENGTH}
                 placeholder="Confirm your password"
                 className="w-full rounded-xl bg-neutral-100 dark:bg-neutral-700/50 border-0 px-4 pr-12 py-3 text-[17px] text-neutral-900 dark:text-white placeholder-neutral-400 focus:outline-none focus:ring-2 focus:ring-[#f56772] focus:ring-offset-2 dark:focus:ring-offset-neutral-800"
               />
@@ -251,6 +256,7 @@ export default function Signup() {
               </button>
             </div>
           </div>
+          <PasswordHints />
           <div>
             <label className="block text-[13px] font-medium text-neutral-500 dark:text-neutral-400 mb-3">
               Profile emoji

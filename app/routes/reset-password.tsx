@@ -1,6 +1,7 @@
 import { Form, Link, redirect, useActionData, useSearchParams } from "react-router";
 import type { Route } from "./+types/reset-password";
 import { resetPasswordWithToken } from "~/lib/auth.server";
+import { MAX_PASSWORD_LENGTH } from "~/lib/password";
 
 export function meta({}: Route.MetaArgs) {
   return [{ title: "Reset password – Terrible Football Liverpool" }];
@@ -84,6 +85,7 @@ export default function ResetPassword() {
               autoComplete="new-password"
               required
               minLength={8}
+              maxLength={MAX_PASSWORD_LENGTH}
               className="w-full rounded-xl bg-neutral-100 dark:bg-neutral-700/50 border-0 px-4 py-3 text-[17px] text-neutral-900 dark:text-white placeholder-neutral-400 focus:outline-none focus:ring-2 focus:ring-[#f56772] focus:ring-offset-2 dark:focus:ring-offset-neutral-800"
               placeholder="At least 8 characters"
             />
@@ -102,6 +104,7 @@ export default function ResetPassword() {
               autoComplete="new-password"
               required
               minLength={8}
+              maxLength={MAX_PASSWORD_LENGTH}
               className="w-full rounded-xl bg-neutral-100 dark:bg-neutral-700/50 border-0 px-4 py-3 text-[17px] text-neutral-900 dark:text-white placeholder-neutral-400 focus:outline-none focus:ring-2 focus:ring-[#f56772] focus:ring-offset-2 dark:focus:ring-offset-neutral-800"
               placeholder="Confirm your password"
             />

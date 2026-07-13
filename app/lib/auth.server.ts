@@ -4,6 +4,7 @@ import { redirect } from "react-router";
 import { getDb, type User } from "./db";
 import { getSession, commitSession, destroySession } from "./session.server";
 import { isEmailConfigured, sendPasswordResetEmail } from "./email.server";
+import { validatePassword } from "./password";
 
 const SALT_ROUNDS = 10;
 
@@ -141,14 +142,15 @@ export async function resetPasswordWithToken(
 ): Promise<{ error: string } | null> {
   const t = String(token).trim();
   if (!t) return { error: "Invalid or expired reset link." };
-  if (newPassword.length < 8) return { error: "Password must be at least 8 characters." };
   const db = getDb();
   const user = db
     .prepare(
-      "SELECT id FROM users WHERE reset_token = ? AND reset_token_expires > ?"
+      "SELECT id, username, email FROM users WHERE reset_token = ? AND reset_token_expires > ?"
     )
-    .get(t, Date.now()) as { id: number } | undefined;
+    .get(t, Date.now()) as { id: number; username: string; email: string } | undefined;
   if (!user) return { error: "Invalid or expired reset link. Please request a new one." };
+  const pwError = validatePassword(newPassword, { username: user.username, email: user.email });
+  if (pwError) return { error: pwError };
   const hash = await hashPassword(newPassword);
   // Clicking a reset link delivered to the user's inbox proves they control the
   // email address, so treat the account as verified on a successful reset.
@@ -225,7 +227,11 @@ export async function updateUserProfile(
   }
 
   if (options.newPassword !== undefined && options.newPassword.length > 0) {
-    if (options.newPassword.length < 8) return { error: "New password must be at least 8 characters." };
+    const pwError = validatePassword(options.newPassword, {
+      username: user.username,
+      email: user.email,
+    });
+    if (pwError) return { error: pwError };
     const hash = await hashPassword(options.newPassword);
     db.prepare("UPDATE users SET password_hash = ? WHERE id = ?").run(hash, userId);
   }

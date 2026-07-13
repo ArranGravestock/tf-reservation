@@ -4,6 +4,8 @@ import type { Route } from "./+types/settings";
 import { createVerificationToken, requireVerifiedUser, updateUserProfile } from "~/lib/auth.server";
 import { getDb } from "~/lib/db";
 import { isEmailConfigured, sendVerificationEmail } from "~/lib/email.server";
+import { validatePassword, MAX_PASSWORD_LENGTH } from "~/lib/password";
+import { PasswordHints } from "~/components/PasswordHints";
 import { ANIMAL_EMOJIS, DEFAULT_PROFILE_EMOJI } from "~/lib/emoji";
 
 export function meta({}: Route.MetaArgs) {
@@ -112,6 +114,13 @@ export async function action({ request }: { request: Request }) {
     }
     if (newPassword === currentPassword) {
       return { intent: "password", error: "New password must be different from your current password." };
+    }
+    const passwordError = validatePassword(newPassword, {
+      username: user.username,
+      email: user.email,
+    });
+    if (passwordError) {
+      return { intent: "password", error: passwordError };
     }
     const error = await updateUserProfile(user.id, {
       currentPassword,
@@ -406,6 +415,7 @@ export default function Settings() {
               type="password"
               autoComplete="new-password"
               minLength={8}
+              maxLength={MAX_PASSWORD_LENGTH}
               className="w-full rounded-xl bg-neutral-100 dark:bg-neutral-700/50 border-0 px-4 py-3 text-[17px] text-neutral-900 dark:text-white placeholder-neutral-400 focus:outline-none focus:ring-2 focus:ring-[#f56772] focus:ring-offset-2 dark:focus:ring-offset-neutral-800"
               placeholder="At least 8 characters"
             />
@@ -420,10 +430,13 @@ export default function Settings() {
               name="confirmPassword"
               type="password"
               autoComplete="new-password"
+              maxLength={MAX_PASSWORD_LENGTH}
               placeholder="Confirm your new password"
               className="w-full rounded-xl bg-neutral-100 dark:bg-neutral-700/50 border-0 px-4 py-3 text-[17px] text-neutral-900 dark:text-white placeholder-neutral-400 focus:outline-none focus:ring-2 focus:ring-[#f56772] focus:ring-offset-2 dark:focus:ring-offset-neutral-800"
             />
           </div>
+
+          <PasswordHints />
 
           <button
             type="submit"
