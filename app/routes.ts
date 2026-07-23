@@ -19,6 +19,7 @@ export default [
   route("notices/create", "routes/notices.create.tsx"),
   route("notices/dismiss", "routes/notices.dismiss.tsx"),
   route("notices/:noticeId", "routes/notices.$noticeId.tsx"),
+  route("late-warning/dismiss", "routes/late-warning.dismiss.tsx"),
   route("faq", "routes/faq.tsx"),
   route("events", "routes/events.tsx", [
     index("routes/events._index.tsx"),

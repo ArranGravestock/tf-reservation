@@ -2,7 +2,7 @@ import { Form, Link, useLoaderData, useActionData } from "react-router";
 import { useState, useEffect } from "react";
 import type { Route } from "./+types/events._index";
 import { requireVerifiedUser } from "~/lib/auth.server";
-import { getDb, ensureSaturdayEvents, isEventEnded, isEventStarted, type Event } from "~/lib/db";
+import { getDb, ensureSaturdayEvents, isEventEnded, isEventStarted, isUserBlocked, type Event } from "~/lib/db";
 import { DEFAULT_PROFILE_EMOJI } from "~/lib/emoji";
 import { SessionImage } from "~/components/SessionImage";
 
@@ -82,6 +82,7 @@ export async function loader({ request }: { request: Request }) {
     time: TIME,
     userSignedUpEventIds: [...userSignedUpSet],
     signupEmojiPreview,
+    blockedUntil: isUserBlocked(user) ? user.blocked_until! : null,
   };
 }
 
@@ -108,8 +109,10 @@ export async function action({ request }: { request: Request }) {
   if (intent === "bulk_save") {
     const signupRaw = formData.get("signupEventIds");
     const unsignupRaw = formData.get("unsignupEventIds");
-    const signupIds =
-      typeof signupRaw === "string" && signupRaw.trim()
+    const blocked = isUserBlocked(user);
+    const signupIds = blocked
+      ? []
+      : typeof signupRaw === "string" && signupRaw.trim()
         ? signupRaw.split(",").map((id) => parseInt(id.trim(), 10)).filter((n) => !Number.isNaN(n))
         : [];
     const unsignupIds =
@@ -136,10 +139,18 @@ export async function action({ request }: { request: Request }) {
       const r = db.prepare("DELETE FROM event_signups WHERE event_id = ? AND user_id = ?").run(eventId, user.id);
       if (r.changes > 0) removed++;
     }
-    return { bulkSave: true, signedUp, removed };
+    return {
+      bulkSave: true,
+      signedUp,
+      removed,
+      ...(blocked && { error: `You're blocked from signing up for events until ${formatBlockedDate(user.blocked_until!)} due to repeated lateness.` }),
+    };
   }
 
   if (intent !== "bulk_signup") return null;
+  if (isUserBlocked(user)) {
+    return { error: `You're blocked from signing up for events until ${formatBlockedDate(user.blocked_until!)} due to repeated lateness.` };
+  }
   const rawIds = formData.getAll("eventId");
   const eventIds = rawIds
     .map((id) => parseInt(String(id), 10))
@@ -167,21 +178,38 @@ function formatDate(isoDate: string) {
   return d.toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long", year: "numeric" });
 }
 
+function formatBlockedDate(unixSeconds: number) {
+  return new Date(unixSeconds * 1000).toLocaleDateString("en-GB", {
+    weekday: "long",
+    day: "numeric",
+    month: "long",
+  });
+}
+
 export default function EventsIndex() {
-  const { months, location, time, userSignedUpEventIds, signupEmojiPreview } = useLoaderData<typeof loader>();
+  const { months, location, time, userSignedUpEventIds, signupEmojiPreview, blockedUntil } = useLoaderData<typeof loader>();
   const actionData = useActionData<typeof action>();
   const [bulkMode, setBulkMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
   const [showBulkSuccessToast, setShowBulkSuccessToast] = useState(false);
+  const [blockedToast, setBlockedToast] = useState<string | null>(null);
   const userSignedUpSet = new Set(userSignedUpEventIds ?? []);
   const idsToUnsignup = (userSignedUpEventIds ?? []).filter((id) => !selectedIds.has(id));
 
   useEffect(() => {
+    const errorMessage = actionData && "error" in actionData ? actionData.error : null;
     const bulkSuccess =
       actionData && ("bulkSignup" in actionData || "bulkUnsignup" in actionData || "bulkSave" in actionData);
-    if (bulkSuccess) {
+    if (errorMessage || bulkSuccess) {
       setBulkMode(false);
       setSelectedIds(new Set());
+    }
+    if (errorMessage) {
+      setBlockedToast(errorMessage);
+      const t = setTimeout(() => setBlockedToast(null), 6000);
+      return () => clearTimeout(t);
+    }
+    if (bulkSuccess) {
       setShowBulkSuccessToast(true);
       const t = setTimeout(() => setShowBulkSuccessToast(false), 3000);
       return () => clearTimeout(t);
@@ -199,7 +227,7 @@ export default function EventsIndex() {
 
   const cardContent = (event: EventWithSignups) => (
     <>
-      <div className={`w-full aspect-[21/9] shrink-0 rounded-t-2xl overflow-hidden bg-neutral-200/80 dark:bg-neutral-700/60 flex items-center justify-center ${bulkMode ? "relative" : ""}`}>
+      <div className="w-full aspect-[21/9] shrink-0 rounded-t-2xl overflow-hidden bg-neutral-200/80 dark:bg-neutral-700/60 flex items-center justify-center relative">
         {bulkMode && (
           <div
             className="absolute top-2 left-2 z-10 flex items-center gap-2 rounded-full bg-white px-2.5 py-1.5 shadow-sm"
@@ -214,6 +242,11 @@ export default function EventsIndex() {
             />
             <span className="text-[13px] font-medium text-neutral-700">Sign up</span>
           </div>
+        )}
+        {!bulkMode && userSignedUpSet.has(event.id) && (
+          <span className="absolute top-2 left-2 z-10 inline-flex items-center rounded-full bg-green-500/90 px-2.5 py-0.5 text-[12px] font-medium text-white shadow-sm">
+            Attending
+          </span>
         )}
         <SessionImage
           seed={event.id}
@@ -283,7 +316,31 @@ export default function EventsIndex() {
           </button>
         </div>
       )}
+      {blockedToast && (
+        <div
+          role="status"
+          aria-live="polite"
+          className="fixed top-20 left-1/2 -translate-x-1/2 z-50 flex items-center gap-3 rounded-xl bg-amber-600 dark:bg-amber-600 text-white pl-5 pr-2 py-3 text-[15px] font-medium shadow-lg border border-amber-500/80 max-w-[calc(100vw-2rem)]"
+        >
+          <span>{blockedToast}</span>
+          <button
+            type="button"
+            onClick={() => setBlockedToast(null)}
+            className="rounded-lg p-1.5 hover:bg-white/10 active:bg-white/20 transition-colors shrink-0"
+            aria-label="Dismiss"
+          >
+            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+        </div>
+      )}
       <div className="max-w-2xl lg:max-w-5xl mx-auto">
+        {blockedUntil && (
+          <div className="rounded-2xl bg-amber-500/10 dark:bg-amber-500/15 text-amber-700 dark:text-amber-400 px-4 py-3 mb-4 text-[15px]">
+            You&apos;re blocked from signing up for events until {formatBlockedDate(blockedUntil)} due to repeated lateness.
+          </div>
+        )}
         <div className="flex flex-wrap items-center justify-between gap-4 mb-4">
           <h1 className="text-[28px] font-semibold text-neutral-900 dark:text-white">
             Events

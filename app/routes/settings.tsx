@@ -407,7 +407,7 @@ export default function Settings() {
             label="Current password"
             autoComplete="current-password"
             required
-            placeholder="amber-dolphin-nest-54"
+            placeholder="********"
           />
 
           <button
@@ -441,7 +441,7 @@ export default function Settings() {
             name="currentPassword"
             label="Current password"
             autoComplete="current-password"
-            placeholder="copper-willow-comet-39"
+            placeholder="********"
           />
 
           <PasswordInput
@@ -450,7 +450,7 @@ export default function Settings() {
             label="New password"
             autoComplete="new-password"
             minLength={8}
-            placeholder="misty-badger-piano-71"
+            placeholder="********"
           />
 
           <PasswordInput
@@ -458,7 +458,7 @@ export default function Settings() {
             name="confirmPassword"
             label="Confirm new password"
             autoComplete="new-password"
-            placeholder="misty-badger-piano-71"
+            placeholder="********"
           />
 
           <PasswordHints />

@@ -87,9 +87,33 @@ function createDb(): Database.Database {
   if (!eventCols.some((c) => c.name === "cancelled")) {
     db.exec("ALTER TABLE events ADD COLUMN cancelled INTEGER NOT NULL DEFAULT 0");
   }
-  const signupCols = db.prepare("PRAGMA table_info(event_signups)").all() as { name: string }[];
+  let signupCols = db.prepare("PRAGMA table_info(event_signups)").all() as { name: string }[];
   if (!signupCols.some((c) => c.name === "guest_count")) {
     db.exec("ALTER TABLE event_signups ADD COLUMN guest_count INTEGER NOT NULL DEFAULT 0");
+  }
+  signupCols = db.prepare("PRAGMA table_info(event_signups)").all() as { name: string }[];
+  if (!signupCols.some((c) => c.name === "attendance_status")) {
+    // Admin-only marker: null (default), 'late', 'attended', or 'did_not_attend'.
+    db.exec("ALTER TABLE event_signups ADD COLUMN attendance_status TEXT");
+  }
+  signupCols = db.prepare("PRAGMA table_info(event_signups)").all() as { name: string }[];
+  if (!signupCols.some((c) => c.name === "late_ack")) {
+    // Whether the user has dismissed the "you were marked late" modal for this
+    // signup. Defaults to 1 (acknowledged) so the column doesn't retroactively
+    // pop up warnings for signups that were already marked late before this
+    // feature existed; it's explicitly reset to 0 when a signup is newly marked late.
+    db.exec("ALTER TABLE event_signups ADD COLUMN late_ack INTEGER NOT NULL DEFAULT 1");
+  }
+  cols = db.prepare("PRAGMA table_info(users)").all() as { name: string }[];
+  if (!cols.some((c) => c.name === "late_count")) {
+    // Total number of times this user has been marked late across all events.
+    db.exec("ALTER TABLE users ADD COLUMN late_count INTEGER NOT NULL DEFAULT 0");
+  }
+  cols = db.prepare("PRAGMA table_info(users)").all() as { name: string }[];
+  if (!cols.some((c) => c.name === "blocked_until")) {
+    // Unix seconds until which the user is blocked from signing up for events
+    // (set after a repeat late marking); NULL when not blocked.
+    db.exec("ALTER TABLE users ADD COLUMN blocked_until INTEGER");
   }
   cols = db.prepare("PRAGMA table_info(users)").all() as { name: string }[];
   if (!cols.some((c) => c.name === "first_name")) {
@@ -164,7 +188,14 @@ export type User = {
   is_admin?: number;
   first_name?: string | null;
   last_name?: string | null;
+  late_count?: number;
+  blocked_until?: number | null;
 };
+
+/** True while the user is serving a lateness block (blocked_until is in the future). */
+export function isUserBlocked(user: { blocked_until?: number | null }): boolean {
+  return !!(user.blocked_until && user.blocked_until > Math.floor(Date.now() / 1000));
+}
 
 export type Event = {
   id: number;
@@ -476,4 +507,42 @@ export function getNoticesList(db: Database.Database): (Notice & { event_date: s
     )
     .all() as (Notice & { event_date: string; event_title: string | null })[];
   return rows;
+}
+
+export const LATE_BLOCK_SECONDS = 7 * 24 * 60 * 60;
+
+export type LateWarning = {
+  signupId: number;
+  eventId: number;
+  eventDate: string;
+  eventTitle: string | null;
+  blocked: boolean;
+  blockedUntil: number | null;
+};
+
+/** Most recent not-yet-dismissed "you were marked late" warning for the user, or null. */
+export function getLateWarningForUser(db: Database.Database, userId: number): LateWarning | null {
+  const row = db
+    .prepare(
+      `SELECT s.id as signupId, s.event_id as eventId, e.event_date as eventDate, e.title as eventTitle
+       FROM event_signups s
+       JOIN events e ON e.id = s.event_id
+       WHERE s.user_id = ? AND s.attendance_status = 'late' AND s.late_ack = 0
+       ORDER BY s.created_at DESC
+       LIMIT 1`
+    )
+    .get(userId) as { signupId: number; eventId: number; eventDate: string; eventTitle: string | null } | undefined;
+  if (!row) return null;
+  const user = db.prepare("SELECT blocked_until FROM users WHERE id = ?").get(userId) as
+    | { blocked_until: number | null }
+    | undefined;
+  return {
+    ...row,
+    blocked: isUserBlocked({ blocked_until: user?.blocked_until ?? null }),
+    blockedUntil: user?.blocked_until ?? null,
+  };
+}
+
+export function acknowledgeLateWarning(db: Database.Database, userId: number, signupId: number): void {
+  db.prepare("UPDATE event_signups SET late_ack = 1 WHERE id = ? AND user_id = ?").run(signupId, userId);
 }

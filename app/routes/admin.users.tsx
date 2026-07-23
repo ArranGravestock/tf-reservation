@@ -5,7 +5,7 @@ const PAGE_SIZE_OPTIONS = [10, 20, 50, 100] as const;
 const DEFAULT_PAGE_SIZE = 20;
 import type { Route } from "./+types/admin.users";
 import { createVerificationToken, requireAdmin } from "~/lib/auth.server";
-import { getDb } from "~/lib/db";
+import { getDb, isUserBlocked, isEventEnded, LATE_BLOCK_SECONDS } from "~/lib/db";
 import { isEmailConfigured, sendVerificationEmail } from "~/lib/email.server";
 
 export function meta({}: Route.MetaArgs) {
@@ -22,16 +22,22 @@ export type AdminUserRow = {
   email_verified: number;
   is_admin: number;
   created_at: number;
+  blocked_until: number | null;
+  blocked: boolean;
 };
 
 export async function loader({ request }: Route.LoaderArgs) {
   const user = await requireAdmin(request);
   const db = getDb();
-  const users = db.prepare(
-    `SELECT id, username, email, first_name, last_name, profile_emoji, email_verified, is_admin, created_at
+  const rows = db.prepare(
+    `SELECT id, username, email, first_name, last_name, profile_emoji, email_verified, is_admin, created_at, blocked_until
      FROM users
      ORDER BY created_at DESC`
-  ).all() as AdminUserRow[];
+  ).all() as Omit<AdminUserRow, "blocked">[];
+  // Computed server-side and shipped as a plain boolean so the client component
+  // never needs to import isUserBlocked() itself, which would drag ~/lib/db.ts
+  // (and the native better-sqlite3 binding) into the browser bundle.
+  const users: AdminUserRow[] = rows.map((r) => ({ ...r, blocked: isUserBlocked(r) }));
   return { users, currentUserId: user.id };
 }
 
@@ -99,6 +105,37 @@ export async function action({ request }: Route.ActionArgs) {
     return null;
   }
 
+  if (intent === "set-blocked") {
+    const blocked = formData.get("blocked");
+    if (blocked !== "0" && blocked !== "1") return null;
+    const rawIds = formData.getAll("userId");
+    const userIds = rawIds
+      .map((id) => parseInt(String(id), 10))
+      .filter((n) => !Number.isNaN(n));
+    if (blocked === "1") {
+      const blockStmt = db.prepare("UPDATE users SET blocked_until = ? WHERE id = ?");
+      const upcomingSignupsStmt = db.prepare(
+        `SELECT s.id, e.event_date, e.time FROM event_signups s JOIN events e ON e.id = s.event_id WHERE s.user_id = ?`
+      );
+      const removeSignupStmt = db.prepare("DELETE FROM event_signups WHERE id = ?");
+      const blockedUntil = Math.floor(Date.now() / 1000) + LATE_BLOCK_SECONDS;
+      for (const targetUserId of userIds) {
+        blockStmt.run(blockedUntil, targetUserId);
+        // Pull them out of everything upcoming, same as an automatic block does.
+        const otherSignups = upcomingSignupsStmt.all(targetUserId) as { id: number; event_date: string; time: string | null }[];
+        for (const s of otherSignups) {
+          if (!isEventEnded(s)) removeSignupStmt.run(s.id);
+        }
+      }
+    } else {
+      const unblockStmt = db.prepare("UPDATE users SET blocked_until = NULL WHERE id = ?");
+      for (const targetUserId of userIds) {
+        unblockStmt.run(targetUserId);
+      }
+    }
+    return null;
+  }
+
   return null;
 }
 
@@ -114,6 +151,14 @@ function formatCreatedAt(unixSeconds: number) {
     year: "numeric",
     hour: "2-digit",
     minute: "2-digit",
+  });
+}
+
+function formatBlockedUntil(unixSeconds: number) {
+  return new Date(unixSeconds * 1000).toLocaleDateString("en-GB", {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
   });
 }
 
@@ -190,6 +235,14 @@ export default function AdminUsers() {
   const selectedAdmin = useMemo(
     () => selectedInPage.filter((u) => u.is_admin && u.id !== currentUserId),
     [selectedInPage, currentUserId]
+  );
+  const selectedNonBlocked = useMemo(
+    () => selectedInPage.filter((u) => !u.blocked && u.id !== currentUserId),
+    [selectedInPage, currentUserId]
+  );
+  const selectedBlocked = useMemo(
+    () => selectedInPage.filter((u) => u.blocked),
+    [selectedInPage]
   );
 
   function toggleSelection(id: number) {
@@ -319,13 +372,13 @@ export default function AdminUsers() {
                   <th className="sticky top-0 z-10 px-4 py-3 text-[12px] font-semibold uppercase tracking-wider text-neutral-500 dark:text-neutral-400 bg-white dark:bg-neutral-800/80">
                     Username
                   </th>
-                  <th className="sticky top-0 z-10 px-4 py-3 text-[12px] font-semibold uppercase tracking-wider text-neutral-500 dark:text-neutral-400 bg-white dark:bg-neutral-800/80">
+                  <th className="sticky top-0 z-10 min-w-[10rem] px-4 py-3 text-[12px] font-semibold uppercase tracking-wider text-neutral-500 dark:text-neutral-400 bg-white dark:bg-neutral-800/80">
                     First name
                   </th>
-                  <th className="sticky top-0 z-10 px-4 py-3 text-[12px] font-semibold uppercase tracking-wider text-neutral-500 dark:text-neutral-400 bg-white dark:bg-neutral-800/80">
+                  <th className="sticky top-0 z-10 min-w-[10rem] px-4 py-3 text-[12px] font-semibold uppercase tracking-wider text-neutral-500 dark:text-neutral-400 bg-white dark:bg-neutral-800/80">
                     Last name
                   </th>
-                  <th className="sticky top-0 z-10 px-4 py-3 text-[12px] font-semibold uppercase tracking-wider text-neutral-500 dark:text-neutral-400 bg-white dark:bg-neutral-800/80">
+                  <th className="sticky top-0 z-10 min-w-[16rem] px-4 py-3 text-[12px] font-semibold uppercase tracking-wider text-neutral-500 dark:text-neutral-400 bg-white dark:bg-neutral-800/80">
                     Email
                   </th>
                   <th className="sticky top-0 z-10 px-4 py-3 text-[12px] font-semibold uppercase tracking-wider text-neutral-500 dark:text-neutral-400 bg-white dark:bg-neutral-800/80">
@@ -333,6 +386,9 @@ export default function AdminUsers() {
                   </th>
                   <th className="sticky top-0 z-10 px-4 py-3 text-[12px] font-semibold uppercase tracking-wider text-neutral-500 dark:text-neutral-400 bg-white dark:bg-neutral-800/80">
                     Admin
+                  </th>
+                  <th className="sticky top-0 z-10 px-4 py-3 text-[12px] font-semibold uppercase tracking-wider text-neutral-500 dark:text-neutral-400 bg-white dark:bg-neutral-800/80">
+                    Blocked
                   </th>
                   <th className="sticky top-0 z-10 px-4 py-3 text-[12px] font-semibold uppercase tracking-wider text-neutral-500 dark:text-neutral-400 hidden md:table-cell bg-white dark:bg-neutral-800/80">
                     Joined
@@ -403,13 +459,13 @@ export default function AdminUsers() {
                     <td className="px-4 py-3 text-[15px] text-neutral-700 dark:text-neutral-300">
                       {u.username}
                     </td>
-                    <td className="px-4 py-3 text-[14px] text-neutral-600 dark:text-neutral-400">
+                    <td className="min-w-[10rem] px-4 py-3 text-[14px] text-neutral-600 dark:text-neutral-400">
                       {u.first_name ?? "—"}
                     </td>
-                    <td className="px-4 py-3 text-[14px] text-neutral-600 dark:text-neutral-400">
+                    <td className="min-w-[10rem] px-4 py-3 text-[14px] text-neutral-600 dark:text-neutral-400">
                       {u.last_name ?? "—"}
                     </td>
-                    <td className="px-4 py-3 text-[14px] text-neutral-600 dark:text-neutral-400 break-all">
+                    <td className="min-w-[16rem] px-4 py-3 text-[14px] text-neutral-600 dark:text-neutral-400 break-all">
                       {u.email}
                     </td>
                     <td className="px-4 py-3">
@@ -427,6 +483,15 @@ export default function AdminUsers() {
                       {u.is_admin ? (
                         <span className="inline-flex items-center rounded-full bg-[#f56772]/15 px-2 py-0.5 text-[12px] font-medium text-[#f56772]">
                           Admin
+                        </span>
+                      ) : (
+                        <span className="text-[13px] text-neutral-400 dark:text-neutral-500">—</span>
+                      )}
+                    </td>
+                    <td className="px-4 py-3">
+                      {u.blocked ? (
+                        <span className="inline-flex items-center rounded-full bg-amber-100 dark:bg-amber-900/40 px-2 py-0.5 text-[12px] font-medium text-amber-700 dark:text-amber-300 whitespace-nowrap">
+                          Until {formatBlockedUntil(u.blocked_until!)}
                         </span>
                       ) : (
                         <span className="text-[13px] text-neutral-400 dark:text-neutral-500">—</span>
@@ -503,6 +568,36 @@ export default function AdminUsers() {
                       className="rounded-lg px-3 py-1.5 text-[13px] font-medium text-neutral-600 dark:text-neutral-400 hover:text-red-600 dark:hover:text-red-400 hover:bg-red-500/10 transition-colors"
                     >
                       Remove admin ({selectedAdmin.length})
+                    </button>
+                  </Form>
+                )}
+                {selectedNonBlocked.length > 0 && (
+                  <Form method="post">
+                    <input type="hidden" name="intent" value="set-blocked" />
+                    <input type="hidden" name="blocked" value="1" />
+                    {selectedNonBlocked.map((u) => (
+                      <input key={u.id} type="hidden" name="userId" value={u.id} />
+                    ))}
+                    <button
+                      type="submit"
+                      className="rounded-lg bg-amber-500/15 px-3 py-1.5 text-[13px] font-medium text-amber-700 dark:text-amber-400 hover:bg-amber-500/25 transition-colors"
+                    >
+                      Block from events ({selectedNonBlocked.length})
+                    </button>
+                  </Form>
+                )}
+                {selectedBlocked.length > 0 && (
+                  <Form method="post">
+                    <input type="hidden" name="intent" value="set-blocked" />
+                    <input type="hidden" name="blocked" value="0" />
+                    {selectedBlocked.map((u) => (
+                      <input key={u.id} type="hidden" name="userId" value={u.id} />
+                    ))}
+                    <button
+                      type="submit"
+                      className="rounded-lg px-3 py-1.5 text-[13px] font-medium text-neutral-600 dark:text-neutral-400 hover:text-emerald-600 dark:hover:text-emerald-400 hover:bg-emerald-500/10 transition-colors"
+                    >
+                      Unblock ({selectedBlocked.length})
                     </button>
                   </Form>
                 )}

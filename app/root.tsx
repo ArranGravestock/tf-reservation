@@ -14,7 +14,7 @@ import {
 
 import type { Route } from "./+types/root";
 import { getUser } from "~/lib/auth.server";
-import { getDb, getNoticesForUser } from "~/lib/db";
+import { getDb, getNoticesForUser, getLateWarningForUser } from "~/lib/db";
 import "./app.css";
 
 export const links: Route.LinksFunction = () => [];
@@ -29,6 +29,7 @@ export async function loader({ request }: { request: Request }) {
         event_date: n.event_date,
       }))
     : [];
+  const lateWarning = user ? getLateWarningForUser(getDb(), user.id) : null;
   return {
     user: user
       ? {
@@ -39,6 +40,7 @@ export async function loader({ request }: { request: Request }) {
         }
       : null,
     notices,
+    lateWarning,
   };
 }
 
@@ -64,9 +66,18 @@ export default function App() {
   const data = useRouteLoaderData("root") as {
     user: { id: number; username: string; profileEmoji: string | null; isAdmin: boolean } | null;
     notices: { id: number; message: string; event_id: number; event_date: string }[];
+    lateWarning: {
+      signupId: number;
+      eventId: number;
+      eventDate: string;
+      eventTitle: string | null;
+      blocked: boolean;
+      blockedUntil: number | null;
+    } | null;
   } | undefined;
   const user = data?.user ?? null;
   const notices = data?.notices ?? [];
+  const lateWarning = data?.lateWarning ?? null;
   const location = useLocation();
   const [mobileOpen, setMobileOpen] = useState(false);
 
@@ -74,6 +85,16 @@ export default function App() {
   useEffect(() => {
     setMobileOpen(false);
   }, [location.pathname]);
+
+  // Don't let the page scroll behind the late-warning modal.
+  useEffect(() => {
+    if (!lateWarning) return;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = previousOverflow;
+    };
+  }, [lateWarning]);
 
   const linkClass =
     "text-[15px] text-neutral-500 hover:text-neutral-900 dark:text-neutral-400 dark:hover:text-white transition-colors";
@@ -245,6 +266,44 @@ export default function App() {
                 </div>
               );
             })}
+          </div>
+        </div>
+      )}
+
+      {lateWarning && (
+        <div
+          className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/50"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="late-warning-title"
+        >
+          <div className="bg-white dark:bg-neutral-800 rounded-3xl shadow-xl max-w-md w-full p-6 border border-neutral-200/80 dark:border-neutral-700/60">
+            <h3 id="late-warning-title" className="text-[17px] font-semibold text-neutral-900 dark:text-white mb-2">
+              You were marked as late
+            </h3>
+            <p className="text-[15px] text-neutral-600 dark:text-neutral-300 mb-4">
+              An admin marked you as late for the event on{" "}
+              {new Date(lateWarning.eventDate + "T12:00:00").toLocaleDateString("en-GB", {
+                weekday: "long",
+                day: "numeric",
+                month: "long",
+              })}
+              {lateWarning.eventTitle?.trim() ? ` (${lateWarning.eventTitle.trim()})` : ""}.{" "}
+              {lateWarning.blocked
+                ? `Because this has happened before, you're blocked from signing up for events until ${new Date(
+                    lateWarning.blockedUntil! * 1000
+                  ).toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long" })}.`
+                : "If you turn up late again, you'll be blocked from signing up for events for a week."}
+            </p>
+            <Form method="post" action="/late-warning/dismiss">
+              <input type="hidden" name="signup_id" value={lateWarning.signupId} />
+              <button
+                type="submit"
+                className="w-full rounded-xl bg-[#f56772] px-4 py-2.5 text-[15px] font-medium text-white hover:opacity-90 active:opacity-80 transition-opacity"
+              >
+                Got it
+              </button>
+            </Form>
           </div>
         </div>
       )}

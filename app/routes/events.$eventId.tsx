@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { Form, Link, redirect, useLoaderData, useActionData } from "react-router";
 import type { Route } from "./+types/events.$eventId";
 import { isAdmin, requireAdmin, requireVerifiedUser } from "~/lib/auth.server";
-import { getDb, updateEvent, isEventEnded, isEventStarted, isEventDate, getEventHosts, setEventHost, type Event } from "~/lib/db";
+import { getDb, updateEvent, isEventEnded, isEventStarted, isEventDate, getEventHosts, setEventHost, isUserBlocked, LATE_BLOCK_SECONDS, type Event } from "~/lib/db";
 import { DEFAULT_PROFILE_EMOJI } from "~/lib/emoji";
 
 export function meta({}: Route.MetaArgs) {
@@ -26,8 +26,8 @@ export async function loader({ request, params }: { request: Request; params: Pr
   if (!isEventDate(event.event_date)) throw new Response("Not found", { status: 404 });
   if (event.cancelled) throw new Response("Not found", { status: 404 });
   const signups = db.prepare(
-    `SELECT u.id, u.username, u.first_name, u.last_name, u.profile_emoji, s.created_at as signed_up_at, COALESCE(s.guest_count, 0) as guest_count FROM event_signups s JOIN users u ON u.id = s.user_id WHERE s.event_id = ? ORDER BY s.created_at ASC`
-  ).all(id) as { id: number; username: string; first_name: string | null; last_name: string | null; profile_emoji: string | null; signed_up_at: number; guest_count: number }[];
+    `SELECT u.id, u.username, u.first_name, u.last_name, u.profile_emoji, s.created_at as signed_up_at, COALESCE(s.guest_count, 0) as guest_count, s.attendance_status FROM event_signups s JOIN users u ON u.id = s.user_id WHERE s.event_id = ? ORDER BY s.created_at ASC`
+  ).all(id) as { id: number; username: string; first_name: string | null; last_name: string | null; profile_emoji: string | null; signed_up_at: number; guest_count: number; attendance_status: string | null }[];
   const userSignedUp = signups.some((s) => s.id === user.id);
   const currentUserSignup = signups.find((s) => s.id === user.id);
   const eventEnded = isEventEnded(event);
@@ -95,6 +95,54 @@ export async function action({ request, params }: { request: Request; params: Pr
     return { adminRemoved: removed };
   }
 
+  if (intent === "admin_mark_attendance") {
+    await requireAdmin(request);
+    const rawStatus = formData.get("status");
+    const status =
+      rawStatus === "late" || rawStatus === "attended" || rawStatus === "did_not_attend" ? rawStatus : null;
+    const userIds = formData
+      .getAll("userId")
+      .map((v) => parseInt(String(v), 10))
+      .filter((n) => !Number.isNaN(n));
+    let updated = 0;
+    const getSignupStmt = db.prepare(
+      "SELECT attendance_status FROM event_signups WHERE event_id = ? AND user_id = ?"
+    );
+    // Reset late_ack to 0 (unseen) whenever newly marked late, so the user gets
+    // a fresh dismissable warning on next login.
+    const updateStmt = db.prepare(
+      "UPDATE event_signups SET attendance_status = ?, late_ack = ? WHERE event_id = ? AND user_id = ?"
+    );
+    const incrementLateStmt = db.prepare("UPDATE users SET late_count = late_count + 1 WHERE id = ?");
+    const getLateCountStmt = db.prepare("SELECT late_count FROM users WHERE id = ?");
+    const blockStmt = db.prepare("UPDATE users SET blocked_until = ? WHERE id = ?");
+    const upcomingSignupsStmt = db.prepare(
+      `SELECT s.id, e.event_date, e.time FROM event_signups s JOIN events e ON e.id = s.event_id WHERE s.user_id = ?`
+    );
+    const removeSignupStmt = db.prepare("DELETE FROM event_signups WHERE id = ?");
+    for (const uid of userIds) {
+      const existing = getSignupStmt.get(id, uid) as { attendance_status: string | null } | undefined;
+      if (!existing) continue;
+      const wasLate = existing.attendance_status === "late";
+      updateStmt.run(status, status === "late" ? 0 : 1, id, uid);
+      updated++;
+      if (status === "late" && !wasLate) {
+        incrementLateStmt.run(uid);
+        const { late_count } = getLateCountStmt.get(uid) as { late_count: number };
+        // Second (or later) time marked late: block sign-ups for a week and pull
+        // them out of every event they haven't already attended.
+        if (late_count >= 2) {
+          blockStmt.run(Math.floor(Date.now() / 1000) + LATE_BLOCK_SECONDS, uid);
+          const otherSignups = upcomingSignupsStmt.all(uid) as { id: number; event_date: string; time: string | null }[];
+          for (const s of otherSignups) {
+            if (!isEventEnded(s)) removeSignupStmt.run(s.id);
+          }
+        }
+      }
+    }
+    return { attendanceUpdated: updated };
+  }
+
   if (intent === "cancel") {
     await requireAdmin(request);
     db.prepare("UPDATE events SET cancelled = 1 WHERE id = ?").run(id);
@@ -137,6 +185,12 @@ export async function action({ request, params }: { request: Request; params: Pr
   if (started) return { error: "This event has already started. Sign-ups are closed." };
   if (ended) return { error: "This event has ended." };
   const user = await requireVerifiedUser(request);
+  if (isUserBlocked(user)) {
+    return {
+      error: `You're blocked from signing up for events until ${formatBlockedDate(user.blocked_until!)} due to repeated lateness.`,
+      blocked: true,
+    };
+  }
   const rawGuest = formData.get("guest_count");
   const guestCount = Math.min(5, Math.max(0, typeof rawGuest === "string" ? parseInt(rawGuest, 10) || 0 : 0));
   try {
@@ -180,6 +234,14 @@ function formatDate(isoDate: string) {
   return d.toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long", year: "numeric" });
 }
 
+function formatBlockedDate(unixSeconds: number) {
+  return new Date(unixSeconds * 1000).toLocaleDateString("en-GB", {
+    weekday: "long",
+    day: "numeric",
+    month: "long",
+  });
+}
+
 export default function EventDetail() {
   const { event, signups, userSignedUp, currentUserGuestCount, isAdmin, eventEnded, eventStarted, isFirstTimer, hosts, userIsHost } = useLoaderData<typeof loader>();
   const actionData = useActionData<typeof action>();
@@ -191,6 +253,7 @@ export default function EventDetail() {
   const [signupSearch, setSignupSearch] = useState("");
   const [isEditing, setIsEditing] = useState(false);
   const [selectedSignupIds, setSelectedSignupIds] = useState<Set<number>>(new Set());
+  const [blockedToast, setBlockedToast] = useState<string | null>(null);
 
   const filteredSignups = signups.filter((s) => {
     const q = signupSearch.trim().toLowerCase();
@@ -222,6 +285,14 @@ export default function EventDetail() {
   }
 
   useEffect(() => {
+    if (actionData && "blocked" in actionData && actionData.blocked && actionData.error) {
+      setBlockedToast(actionData.error);
+      const t = setTimeout(() => setBlockedToast(null), 6000);
+      return () => clearTimeout(t);
+    }
+  }, [actionData]);
+
+  useEffect(() => {
     if (actionData && "editSuccess" in actionData && actionData.editSuccess) {
       setIsEditing(false);
     }
@@ -241,11 +312,23 @@ export default function EventDetail() {
     if (actionData && "adminRemoved" in actionData) {
       setSelectedSignupIds(new Set());
     }
+    if (actionData && "attendanceUpdated" in actionData) {
+      setSelectedSignupIds(new Set());
+    }
   }, [actionData]);
 
   useEffect(() => {
     if (!signupModalOpen) setSelectedSignupIds(new Set());
   }, [signupModalOpen]);
+
+  useEffect(() => {
+    if (!signupModalOpen && !signupConfirmModalOpen) return;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = previousOverflow;
+    };
+  }, [signupModalOpen, signupConfirmModalOpen]);
 
   const title = event.title?.trim() || DEFAULT_TITLE;
   const description = event.description?.trim() ?? "";
@@ -260,6 +343,25 @@ export default function EventDetail() {
 
   return (
     <main className="min-h-screen bg-[#f5f5f7] dark:bg-[#1c1c1e] p-6 pb-24">
+      {blockedToast && (
+        <div
+          role="status"
+          aria-live="polite"
+          className="fixed top-20 left-1/2 -translate-x-1/2 z-[70] flex items-center gap-3 rounded-xl bg-amber-600 dark:bg-amber-600 text-white pl-5 pr-2 py-3 text-[15px] font-medium shadow-lg border border-amber-500/80 max-w-[calc(100vw-2rem)]"
+        >
+          <span>{blockedToast}</span>
+          <button
+            type="button"
+            onClick={() => setBlockedToast(null)}
+            className="rounded-lg p-1.5 hover:bg-white/10 active:bg-white/20 transition-colors shrink-0"
+            aria-label="Dismiss"
+          >
+            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+        </div>
+      )}
       <div className="max-w-2xl lg:max-w-5xl mx-auto">
         <div className="flex items-center justify-between gap-4 mb-6">
           <Link
@@ -456,7 +558,7 @@ export default function EventDetail() {
           </svg>
         </div>
 
-        {actionData?.error && (
+        {actionData?.error && !("blocked" in actionData && actionData.blocked) && (
           <div className="rounded-2xl bg-amber-500/10 dark:bg-amber-500/15 text-amber-700 dark:text-amber-400 px-4 py-3 mb-6 text-[15px]">
             {actionData.error}
           </div>
@@ -569,7 +671,7 @@ export default function EventDetail() {
             >
               <div className="p-4 border-b border-neutral-200/80 dark:border-neutral-700/60 flex items-center justify-between shrink-0">
                 <h3 id="signup-modal-title" className="text-[17px] font-semibold text-neutral-900 dark:text-white">
-                  Signed up ({totalAttendees})
+                  {totalAttendees} Attending
                 </h3>
                 <button
                   type="button"
@@ -589,38 +691,89 @@ export default function EventDetail() {
                   className="w-full rounded-xl bg-neutral-100 dark:bg-neutral-700/50 border-0 px-4 py-2.5 text-[15px] text-neutral-900 dark:text-white placeholder-neutral-400 focus:outline-none focus:ring-2 focus:ring-[#f56772]"
                 />
                 {isAdmin && filteredSignups.length > 0 && (
-                  <label className="flex items-center gap-2.5 text-[14px] font-medium text-neutral-600 dark:text-neutral-300">
-                    <input
-                      type="checkbox"
-                      checked={allFilteredSelected}
-                      onChange={toggleSelectAllSignups}
-                      className="rounded border-neutral-300 dark:border-neutral-600 text-[#f56772] focus:ring-[#f56772]"
-                    />
-                    Select all
-                  </label>
+                  <div className="flex items-center justify-between gap-2 flex-wrap">
+                    <label className="flex items-center gap-2.5 text-[14px] font-medium text-neutral-600 dark:text-neutral-300">
+                      <input
+                        type="checkbox"
+                        checked={allFilteredSelected}
+                        onChange={toggleSelectAllSignups}
+                        className="rounded border-neutral-300 dark:border-neutral-600 text-[#f56772] focus:ring-[#f56772]"
+                      />
+                      Select all
+                    </label>
+                    {selectedSignupIds.size > 0 && (
+                      <div className="flex items-center gap-1.5">
+                        <Form method="post">
+                          <input type="hidden" name="intent" value="admin_mark_attendance" />
+                          <input type="hidden" name="status" value="attended" />
+                          {[...selectedSignupIds].map((uid) => (
+                            <input key={uid} type="hidden" name="userId" value={uid} />
+                          ))}
+                          <button
+                            type="submit"
+                            className="rounded-lg bg-green-500/10 px-2.5 py-1.5 text-[13px] font-medium text-green-600 dark:text-green-400 hover:bg-green-500/20 transition-colors"
+                          >
+                            Attended
+                          </button>
+                        </Form>
+                        <Form method="post">
+                          <input type="hidden" name="intent" value="admin_mark_attendance" />
+                          <input type="hidden" name="status" value="late" />
+                          {[...selectedSignupIds].map((uid) => (
+                            <input key={uid} type="hidden" name="userId" value={uid} />
+                          ))}
+                          <button
+                            type="submit"
+                            className="rounded-lg bg-amber-500/10 px-2.5 py-1.5 text-[13px] font-medium text-amber-600 dark:text-amber-400 hover:bg-amber-500/20 transition-colors"
+                          >
+                            Late
+                          </button>
+                        </Form>
+                        <Form method="post">
+                          <input type="hidden" name="intent" value="admin_mark_attendance" />
+                          <input type="hidden" name="status" value="did_not_attend" />
+                          {[...selectedSignupIds].map((uid) => (
+                            <input key={uid} type="hidden" name="userId" value={uid} />
+                          ))}
+                          <button
+                            type="submit"
+                            className="rounded-lg bg-neutral-500/10 px-2.5 py-1.5 text-[13px] font-medium text-neutral-600 dark:text-neutral-400 hover:bg-neutral-500/20 transition-colors"
+                          >
+                            Did not attend
+                          </button>
+                        </Form>
+                      </div>
+                    )}
+                  </div>
                 )}
               </div>
               <ul className="overflow-y-auto flex-1 min-h-0 p-4 pt-0 space-y-2">
                 {filteredSignups.map((s) => (
                   <li
                     key={s.id}
-                    className="flex items-center justify-between gap-3 py-2 border-b border-neutral-100 dark:border-neutral-700/50 last:border-0"
+                    role={isAdmin ? "button" : undefined}
+                    tabIndex={isAdmin ? 0 : undefined}
+                    onClick={isAdmin ? () => toggleSignupSelected(s.id) : undefined}
+                    onKeyDown={
+                      isAdmin
+                        ? (e) => {
+                            if (e.key === "Enter" || e.key === " ") {
+                              e.preventDefault();
+                              toggleSignupSelected(s.id);
+                            }
+                          }
+                        : undefined
+                    }
+                    aria-pressed={isAdmin ? selectedSignupIds.has(s.id) : undefined}
+                    aria-label={isAdmin ? `Select ${signupDisplayName(s)}` : undefined}
+                    className={`flex items-center justify-between gap-3 py-2 px-1 -mx-1 rounded-lg border-b border-neutral-100 dark:border-neutral-700/50 last:border-0 ${
+                      isAdmin
+                        ? "cursor-pointer select-none hover:bg-neutral-100 dark:hover:bg-neutral-700/50 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#f56772]"
+                        : ""
+                    }`}
                   >
                     {isAdmin ? (
-                      <span
-                        role="button"
-                        tabIndex={0}
-                        onClick={() => toggleSignupSelected(s.id)}
-                        onKeyDown={(e) => {
-                          if (e.key === "Enter" || e.key === " ") {
-                            e.preventDefault();
-                            toggleSignupSelected(s.id);
-                          }
-                        }}
-                        aria-pressed={selectedSignupIds.has(s.id)}
-                        aria-label={`Select ${signupDisplayName(s)}`}
-                        className="flex items-center gap-2 text-[15px] text-neutral-900 dark:text-white min-w-0 cursor-pointer select-none rounded-lg -mx-1 px-1 py-0.5 hover:bg-neutral-100 dark:hover:bg-neutral-700/50 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#f56772]"
-                      >
+                      <span className="flex items-center gap-2 text-[15px] text-neutral-900 dark:text-white min-w-0">
                         <input
                           type="checkbox"
                           checked={selectedSignupIds.has(s.id)}
@@ -645,11 +798,28 @@ export default function EventDetail() {
                       <span className="text-[13px] text-neutral-500 dark:text-neutral-400">
                         {formatSignupTime(s.signed_up_at)}
                       </span>
-                      {(s.guest_count ?? 0) > 0 && (
-                        <span className="inline-flex items-center rounded-full bg-neutral-100 dark:bg-neutral-600/60 px-2.5 py-0.5 text-[12px] font-medium text-neutral-600 dark:text-neutral-300">
-                          +{(s.guest_count ?? 0)} {(s.guest_count ?? 0) === 1 ? "guest" : "guests"}
-                        </span>
-                      )}
+                      <span className="flex items-center gap-1">
+                        {(s.guest_count ?? 0) > 0 && (
+                          <span className="inline-flex items-center rounded-full bg-neutral-100 dark:bg-neutral-600/60 px-2.5 py-0.5 text-[12px] font-medium text-neutral-600 dark:text-neutral-300">
+                            +{(s.guest_count ?? 0)} {(s.guest_count ?? 0) === 1 ? "guest" : "guests"}
+                          </span>
+                        )}
+                        {isAdmin && s.attendance_status === "late" && (
+                          <span className="inline-flex items-center rounded-full bg-amber-500/15 px-2.5 py-0.5 text-[12px] font-medium text-amber-600 dark:text-amber-400">
+                            Late
+                          </span>
+                        )}
+                        {isAdmin && s.attendance_status === "attended" && (
+                          <span className="inline-flex items-center rounded-full bg-green-500/15 px-2.5 py-0.5 text-[12px] font-medium text-green-600 dark:text-green-400">
+                            Attended
+                          </span>
+                        )}
+                        {isAdmin && s.attendance_status === "did_not_attend" && (
+                          <span className="inline-flex items-center rounded-full bg-neutral-500/15 px-2.5 py-0.5 text-[12px] font-medium text-neutral-600 dark:text-neutral-400">
+                            Did not attend
+                          </span>
+                        )}
+                      </span>
                     </span>
                   </li>
                 ))}
@@ -670,7 +840,7 @@ export default function EventDetail() {
                       type="submit"
                       className="w-full rounded-xl bg-red-500/10 px-4 py-2.5 text-[15px] font-medium text-red-600 dark:text-red-400 hover:bg-red-500/20 transition-colors"
                     >
-                      Mark as not attending ({selectedSignupIds.size})
+                      Remove from event ({selectedSignupIds.size})
                     </button>
                   </Form>
                 </div>
