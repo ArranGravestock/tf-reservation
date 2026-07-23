@@ -17,7 +17,12 @@ import { getUser } from "~/lib/auth.server";
 import { getDb, getNoticesForUser, getLateWarningForUser } from "~/lib/db";
 import "./app.css";
 
-export const links: Route.LinksFunction = () => [];
+export const links: Route.LinksFunction = () => [
+  { rel: "manifest", href: "/manifest.webmanifest" },
+  { rel: "icon", href: "/favicon.ico", sizes: "48x48" },
+  { rel: "icon", href: "/pwa-icon.svg", type: "image/svg+xml" },
+  { rel: "apple-touch-icon", href: "/apple-touch-icon-180x180.png" },
+];
 
 export async function loader({ request }: { request: Request }) {
   const user = await getUser(request);
@@ -50,6 +55,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
       <head>
         <meta charSet="utf-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1" />
+        <meta name="theme-color" content="#f56772" />
         <Meta />
         <Links />
       </head>
@@ -85,6 +91,17 @@ export default function App() {
   useEffect(() => {
     setMobileOpen(false);
   }, [location.pathname]);
+
+  // Register the PWA service worker. Dynamically imported so the virtual
+  // module (only resolvable client-side) never enters the SSR bundle. Only a
+  // production build actually generates a service worker, so this is a no-op
+  // (silently ignored) in dev.
+  useEffect(() => {
+    if (!("serviceWorker" in navigator)) return;
+    import("virtual:pwa-register")
+      .then(({ registerSW }) => registerSW({ immediate: true }))
+      .catch(() => {});
+  }, []);
 
   // Don't let the page scroll behind the late-warning modal.
   useEffect(() => {
