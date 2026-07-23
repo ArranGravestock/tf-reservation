@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { Form, Link, redirect, useLoaderData, useActionData } from "react-router";
+import QRCode from "qrcode";
 import type { Route } from "./+types/events.$eventId";
 import { isAdmin, requireAdmin, requireVerifiedUser } from "~/lib/auth.server";
 import { getDb, updateEvent, isEventEnded, isEventStarted, isEventDate, getEventHosts, setEventHost, isUserBlocked, LATE_BLOCK_SECONDS, type Event } from "~/lib/db";
@@ -12,6 +13,8 @@ export function meta({}: Route.MetaArgs) {
 const DEFAULT_TITLE = "Terrible Football Liverpool";
 const DEFAULT_LOCATION = "Wavertree Botanic Gardens, Edge Lane, Innovation Boulevard, Liverpool";
 const DEFAULT_TIME = "10:30am";
+const DONATION_LINK = `https://monzo.me/arrangravestock?d=${encodeURIComponent("Terrible Football donation")}`;
+const WHATSAPP_LINK = "https://chat.whatsapp.com/";
 
 export async function loader({ request, params }: { request: Request; params: Promise<{ eventId: string }> }) {
   const user = await requireVerifiedUser(request);
@@ -45,6 +48,8 @@ export async function loader({ request, params }: { request: Request; params: Pr
   const isFirstTimer = attended.c === 0;
   const hosts = getEventHosts(db, id);
   const userIsHost = hosts.some((h) => h.id === user.id);
+  const donationQrCode = await QRCode.toDataURL(DONATION_LINK, { width: 220, margin: 1 });
+  const whatsappQrCode = await QRCode.toDataURL(WHATSAPP_LINK, { width: 220, margin: 1 });
   return {
     event,
     signups,
@@ -56,6 +61,8 @@ export async function loader({ request, params }: { request: Request; params: Pr
     isFirstTimer,
     hosts,
     userIsHost,
+    donationQrCode,
+    whatsappQrCode,
   };
 }
 
@@ -243,7 +250,7 @@ function formatBlockedDate(unixSeconds: number) {
 }
 
 export default function EventDetail() {
-  const { event, signups, userSignedUp, currentUserGuestCount, isAdmin, eventEnded, eventStarted, isFirstTimer, hosts, userIsHost } = useLoaderData<typeof loader>();
+  const { event, signups, userSignedUp, currentUserGuestCount, isAdmin, eventEnded, eventStarted, isFirstTimer, hosts, userIsHost, donationQrCode, whatsappQrCode } = useLoaderData<typeof loader>();
   const actionData = useActionData<typeof action>();
   const [signupModalOpen, setSignupModalOpen] = useState(false);
   const [signupConfirmModalOpen, setSignupConfirmModalOpen] = useState(false);
@@ -602,31 +609,65 @@ export default function EventDetail() {
           </div>
 
           <div>
-            <h2 className="text-[17px] font-semibold text-neutral-900 dark:text-white mb-3">
-              Donations
-            </h2>
-            <p className="text-[15px] text-neutral-600 dark:text-neutral-300 leading-relaxed mb-2">
-              We are raising donations to cover meetup fees and new equipment. You can donate at:
-            </p>
-            <ul className="text-[15px] text-neutral-600 dark:text-neutral-300 space-y-1">
-              <li><strong className="text-neutral-900 dark:text-white">Business name:</strong> Terrible Football</li>
-              <li><strong className="text-neutral-900 dark:text-white">Sort code:</strong> 30-99-50</li>
-              <li><strong className="text-neutral-900 dark:text-white">Account number:</strong> 34215263</li>
-            </ul>
+            <div className="rounded-2xl bg-[#ffe4e9] dark:bg-[#ff3053]/15 border border-[#ff3053]/40 dark:border-[#ff3053]/30 p-5 shadow-sm dark:shadow-none">
+              <div className="flex items-center gap-5">
+                <img
+                  src={donationQrCode}
+                  alt="QR code to donate via Monzo"
+                  className="w-28 h-28 shrink-0 rounded-xl border border-[#ff3053]/40 bg-white p-1.5"
+                />
+                <div className="min-w-0">
+                  <p className="text-[13px] font-medium uppercase tracking-wider text-[#ff3053] mb-1">
+                    Donate via Monzo
+                  </p>
+                  <a
+                    href={DONATION_LINK}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-[17px] font-semibold text-[#ff3053] hover:underline break-all"
+                  >
+                    monzo.me/arrangravestock
+                  </a>
+                  <p className="text-[13px] text-[#ff3053]/70 mt-1.5">
+                    Scan with your phone&apos;s camera to open the link.
+                  </p>
+                </div>
+              </div>
+            </div>
           </div>
 
           <div>
-            <h2 className="text-[17px] font-semibold text-neutral-900 dark:text-white mb-3">
-              WhatsApp group
-            </h2>
-            <p className="text-[15px] text-neutral-600 dark:text-neutral-300 leading-relaxed mb-2">
-              <a href="https://chat.whatsapp.com/" target="_blank" rel="noopener noreferrer" className="text-[#f56772] hover:underline">
-                Join the WhatsApp group
-              </a>
-            </p>
-            <p className="text-[15px] text-neutral-500 dark:text-neutral-400">
-              Due to a bot problem we now require your WhatsApp name to match your Meetup name. If they do not match you will not be accepted.
-            </p>
+            <div className="rounded-2xl bg-[#dcf8c6] dark:bg-[#075e54]/20 border border-[#25d366]/40 dark:border-[#25d366]/30 p-5 shadow-sm dark:shadow-none">
+              <div className="flex items-center gap-5">
+                <img
+                  src={whatsappQrCode}
+                  alt="QR code to join the WhatsApp group"
+                  className="w-28 h-28 shrink-0 rounded-xl border border-[#25d366]/40 bg-white p-1.5"
+                />
+                <div className="min-w-0">
+                  <p className="flex items-center gap-1.5 text-[13px] font-medium uppercase tracking-wider text-[#075e54] dark:text-[#25d366] mb-1">
+                    <svg viewBox="0 0 24 24" className="w-4 h-4 shrink-0 fill-[#25d366]" aria-hidden>
+                      <path d="M12.04 2C6.58 2 2.13 6.45 2.13 11.91c0 1.75.46 3.45 1.32 4.95L2.05 22l5.25-1.38a9.9 9.9 0 0 0 4.74 1.2h.01c5.46 0 9.91-4.45 9.91-9.91 0-2.65-1.03-5.14-2.9-7.01A9.86 9.86 0 0 0 12.04 2zm0 18.1h-.01a8.2 8.2 0 0 1-4.19-1.15l-.3-.18-3.12.82.83-3.04-.2-.31a8.2 8.2 0 0 1-1.26-4.4c0-4.54 3.7-8.24 8.26-8.24a8.2 8.2 0 0 1 5.83 2.42 8.19 8.19 0 0 1 2.41 5.83c0 4.55-3.7 8.25-8.25 8.25zm4.52-6.17c-.25-.12-1.47-.72-1.7-.81-.23-.08-.39-.12-.56.13-.17.25-.64.81-.78.97-.14.17-.29.19-.53.06-.25-.12-1.04-.38-1.99-1.22-.73-.66-1.23-1.46-1.37-1.71-.14-.25-.02-.38.11-.51.11-.11.25-.29.37-.43.12-.14.16-.25.25-.41.08-.17.04-.31-.02-.44-.06-.12-.56-1.35-.77-1.85-.2-.48-.41-.42-.56-.43-.14-.01-.31-.01-.48-.01-.17 0-.44.06-.67.31-.23.25-.87.85-.87 2.08 0 1.23.89 2.41 1.02 2.58.12.17 1.75 2.67 4.24 3.74.59.26 1.05.41 1.41.52.59.19 1.13.16 1.55.1.47-.07 1.47-.6 1.68-1.18.21-.58.21-1.08.14-1.18-.06-.11-.23-.17-.48-.29z" />
+                    </svg>
+                    WhatsApp group
+                  </p>
+                  <a
+                    href={WHATSAPP_LINK}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-[17px] font-semibold text-[#075e54] dark:text-[#25d366] hover:underline"
+                  >
+                    Join the WhatsApp group
+                  </a>
+                  <p className="text-[13px] text-[#075e54]/70 dark:text-[#25d366]/70 mt-1.5">
+                    Scan with your phone&apos;s camera to open the link.
+                  </p>
+                </div>
+              </div>
+              <p className="mt-4 pt-4 border-t border-[#25d366]/30 text-[13px] text-[#075e54]/80 dark:text-[#25d366]/80">
+                Due to a bot problem we now require your WhatsApp name to match your Meetup name. If they do not match you will not be accepted.
+              </p>
+            </div>
           </div>
 
           <div>
