@@ -23,6 +23,7 @@ export default [
   route("faq", "routes/faq.tsx"),
   route("events", "routes/events.tsx", [
     index("routes/events._index.tsx"),
+    route("create", "routes/events.create.tsx"),
     route(":eventId", "routes/events.$eventId.tsx"),
   ]),
 ] satisfies RouteConfig;

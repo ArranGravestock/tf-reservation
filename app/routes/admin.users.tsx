@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 const PAGE_SIZE_OPTIONS = [10, 20, 50, 100] as const;
 const DEFAULT_PAGE_SIZE = 20;
 import type { Route } from "./+types/admin.users";
-import { createVerificationToken, requireAdmin } from "~/lib/auth.server";
+import { createVerificationToken, requireAdmin, requireSuperAdmin, isSuperAdmin } from "~/lib/auth.server";
 import { getDb, isUserBlocked, isEventEnded, LATE_BLOCK_SECONDS } from "~/lib/db";
 import { isEmailConfigured, sendVerificationEmail } from "~/lib/email.server";
 
@@ -21,6 +21,7 @@ export type AdminUserRow = {
   profile_emoji: string | null;
   email_verified: number;
   is_admin: number;
+  is_super_admin: number;
   created_at: number;
   blocked_until: number | null;
   blocked: boolean;
@@ -30,7 +31,7 @@ export async function loader({ request }: Route.LoaderArgs) {
   const user = await requireAdmin(request);
   const db = getDb();
   const rows = db.prepare(
-    `SELECT id, username, email, first_name, last_name, profile_emoji, email_verified, is_admin, created_at, blocked_until
+    `SELECT id, username, email, first_name, last_name, profile_emoji, email_verified, is_admin, is_super_admin, created_at, blocked_until
      FROM users
      ORDER BY created_at DESC`
   ).all() as Omit<AdminUserRow, "blocked">[];
@@ -38,7 +39,7 @@ export async function loader({ request }: Route.LoaderArgs) {
   // never needs to import isUserBlocked() itself, which would drag ~/lib/db.ts
   // (and the native better-sqlite3 binding) into the browser bundle.
   const users: AdminUserRow[] = rows.map((r) => ({ ...r, blocked: isUserBlocked(r) }));
-  return { users, currentUserId: user.id };
+  return { users, currentUserId: user.id, currentUserIsSuperAdmin: isSuperAdmin(user) };
 }
 
 export async function action({ request }: Route.ActionArgs) {
@@ -92,6 +93,7 @@ export async function action({ request }: Route.ActionArgs) {
   }
 
   if (intent === "set-admin") {
+    await requireSuperAdmin(request);
     const isAdmin = formData.get("isAdmin");
     if (isAdmin !== "0" && isAdmin !== "1") return null;
     const rawIds = formData.getAll("userId");
@@ -163,7 +165,7 @@ function formatBlockedUntil(unixSeconds: number) {
 }
 
 export default function AdminUsers() {
-  const { users, currentUserId } = useLoaderData<typeof loader>();
+  const { users, currentUserId, currentUserIsSuperAdmin } = useLoaderData<typeof loader>();
   const actionData = useActionData<typeof action>();
   const [searchParams, setSearchParams] = useSearchParams();
   const [search, setSearch] = useState("");
@@ -480,7 +482,11 @@ export default function AdminUsers() {
                       )}
                     </td>
                     <td className="px-4 py-3">
-                      {u.is_admin ? (
+                      {u.is_super_admin ? (
+                        <span className="inline-flex items-center rounded-full bg-[#f56772]/15 px-2 py-0.5 text-[12px] font-medium text-[#f56772]">
+                          Super admin
+                        </span>
+                      ) : u.is_admin ? (
                         <span className="inline-flex items-center rounded-full bg-[#f56772]/15 px-2 py-0.5 text-[12px] font-medium text-[#f56772]">
                           Admin
                         </span>
@@ -541,7 +547,7 @@ export default function AdminUsers() {
                     </button>
                   </Form>
                 )}
-                {selectedNonAdmin.length > 0 && (
+                {currentUserIsSuperAdmin && selectedNonAdmin.length > 0 && (
                   <Form method="post">
                     <input type="hidden" name="intent" value="set-admin" />
                     <input type="hidden" name="isAdmin" value="1" />
@@ -556,7 +562,7 @@ export default function AdminUsers() {
                     </button>
                   </Form>
                 )}
-                {selectedAdmin.length > 0 && (
+                {currentUserIsSuperAdmin && selectedAdmin.length > 0 && (
                   <Form method="post">
                     <input type="hidden" name="intent" value="set-admin" />
                     <input type="hidden" name="isAdmin" value="0" />

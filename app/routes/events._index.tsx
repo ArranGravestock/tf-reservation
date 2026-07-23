@@ -1,7 +1,7 @@
 import { Form, Link, useLoaderData, useActionData } from "react-router";
 import { useState, useEffect } from "react";
 import type { Route } from "./+types/events._index";
-import { requireVerifiedUser } from "~/lib/auth.server";
+import { requireVerifiedUser, isAdmin } from "~/lib/auth.server";
 import { getDb, ensureSaturdayEvents, isEventEnded, isEventStarted, isUserBlocked, type Event } from "~/lib/db";
 import { DEFAULT_PROFILE_EMOJI } from "~/lib/emoji";
 import { SessionImage } from "~/components/SessionImage";
@@ -20,11 +20,11 @@ export async function loader({ request }: { request: Request }) {
   const db = getDb();
   ensureSaturdayEvents(db, 12);
   const rows = db.prepare(
-    `SELECT e.id, e.event_date, e.created_at, e.title, e.description, e.location, e.time,
+    `SELECT e.id, e.event_date, e.created_at, e.title, e.description, e.location, e.time, e.custom,
        COUNT(s.id) + COALESCE(SUM(s.guest_count), 0) as signup_count
      FROM events e
      LEFT JOIN event_signups s ON s.event_id = e.id
-     WHERE strftime('%w', e.event_date) IN ('6', '3') AND e.cancelled = 0
+     WHERE (strftime('%w', e.event_date) IN ('6', '3') OR e.custom = 1) AND e.cancelled = 0
      GROUP BY e.id
      ORDER BY e.event_date ASC`
   ).all() as (Event & { signup_count: number | string })[];
@@ -83,6 +83,7 @@ export async function loader({ request }: { request: Request }) {
     userSignedUpEventIds: [...userSignedUpSet],
     signupEmojiPreview,
     blockedUntil: isUserBlocked(user) ? user.blocked_until! : null,
+    isAdmin: isAdmin(user),
   };
 }
 
@@ -187,7 +188,7 @@ function formatBlockedDate(unixSeconds: number) {
 }
 
 export default function EventsIndex() {
-  const { months, location, time, userSignedUpEventIds, signupEmojiPreview, blockedUntil } = useLoaderData<typeof loader>();
+  const { months, location, time, userSignedUpEventIds, signupEmojiPreview, blockedUntil, isAdmin } = useLoaderData<typeof loader>();
   const actionData = useActionData<typeof action>();
   const [bulkMode, setBulkMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
@@ -248,10 +249,12 @@ export default function EventsIndex() {
             Attending
           </span>
         )}
-        <SessionImage
-          seed={event.id}
-          className="h-full w-full text-neutral-500 dark:text-neutral-400"
-        />
+        {!event.custom && (
+          <SessionImage
+            seed={event.id}
+            className="h-full w-full text-neutral-500 dark:text-neutral-400"
+          />
+        )}
       </div>
       <div className="p-4 flex flex-col gap-1">
         <span className="text-[17px] font-semibold text-neutral-900 dark:text-white">
@@ -345,20 +348,30 @@ export default function EventsIndex() {
           <h1 className="text-[28px] font-semibold text-neutral-900 dark:text-white">
             Events
           </h1>
-          <button
-            type="button"
-            onClick={() => {
-              if (bulkMode) {
-                setSelectedIds(new Set());
-              } else {
-                setSelectedIds(new Set(userSignedUpEventIds ?? []));
-              }
-              setBulkMode((b) => !b);
-            }}
-            className="rounded-xl border border-neutral-300 dark:border-neutral-600 px-4 py-2.5 text-[15px] font-medium text-neutral-700 dark:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-700/50 transition-colors"
-          >
-            {bulkMode ? "Cancel bulk sign up" : "Bulk sign up"}
-          </button>
+          <div className="flex flex-wrap items-center gap-2">
+            {isAdmin && (
+              <Link
+                to="/events/create"
+                className="rounded-xl border border-neutral-300 dark:border-neutral-600 px-4 py-2.5 text-[15px] font-medium text-neutral-700 dark:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-700/50 transition-colors"
+              >
+                Create event
+              </Link>
+            )}
+            <button
+              type="button"
+              onClick={() => {
+                if (bulkMode) {
+                  setSelectedIds(new Set());
+                } else {
+                  setSelectedIds(new Set(userSignedUpEventIds ?? []));
+                }
+                setBulkMode((b) => !b);
+              }}
+              className="rounded-xl border border-neutral-300 dark:border-neutral-600 px-4 py-2.5 text-[15px] font-medium text-neutral-700 dark:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-700/50 transition-colors"
+            >
+              {bulkMode ? "Cancel bulk sign up" : "Bulk sign up"}
+            </button>
+          </div>
         </div>
         <p className="text-[15px] text-neutral-500 dark:text-neutral-400 mb-4">
           Pick an event to sign up. New events are created automatically every Saturday and Wednesday.

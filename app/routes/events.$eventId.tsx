@@ -5,6 +5,7 @@ import type { Route } from "./+types/events.$eventId";
 import { isAdmin, requireAdmin, requireVerifiedUser } from "~/lib/auth.server";
 import { getDb, updateEvent, isEventEnded, isEventStarted, isEventDate, getEventHosts, setEventHost, isUserBlocked, LATE_BLOCK_SECONDS, type Event } from "~/lib/db";
 import { DEFAULT_PROFILE_EMOJI } from "~/lib/emoji";
+import { renderMarkdown } from "~/lib/markdown.server";
 
 export function meta({}: Route.MetaArgs) {
   return [{ title: "Event – Terrible Football Liverpool" }];
@@ -23,10 +24,10 @@ export async function loader({ request, params }: { request: Request; params: Pr
   if (Number.isNaN(id)) throw new Response("Not found", { status: 404 });
   const db = getDb();
   const event = db
-    .prepare("SELECT id, event_date, created_at, title, description, location, time, cancelled FROM events WHERE id = ?")
+    .prepare("SELECT id, event_date, created_at, title, description, location, time, cancelled, custom, content FROM events WHERE id = ?")
     .get(id) as Event | undefined;
   if (!event) throw new Response("Not found", { status: 404 });
-  if (!isEventDate(event.event_date)) throw new Response("Not found", { status: 404 });
+  if (!isEventDate(event.event_date) && !event.custom) throw new Response("Not found", { status: 404 });
   if (event.cancelled) throw new Response("Not found", { status: 404 });
   const signups = db.prepare(
     `SELECT u.id, u.username, u.first_name, u.last_name, u.profile_emoji, s.created_at as signed_up_at, COALESCE(s.guest_count, 0) as guest_count, s.attendance_status FROM event_signups s JOIN users u ON u.id = s.user_id WHERE s.event_id = ? ORDER BY s.created_at ASC`
@@ -50,6 +51,7 @@ export async function loader({ request, params }: { request: Request; params: Pr
   const userIsHost = hosts.some((h) => h.id === user.id);
   const donationQrCode = await QRCode.toDataURL(DONATION_LINK, { width: 220, margin: 1 });
   const whatsappQrCode = await QRCode.toDataURL(WHATSAPP_LINK, { width: 220, margin: 1 });
+  const contentHtml = event.content?.trim() ? renderMarkdown(event.content.trim()) : null;
   return {
     event,
     signups,
@@ -62,6 +64,7 @@ export async function loader({ request, params }: { request: Request; params: Pr
     hosts,
     userIsHost,
     donationQrCode,
+    contentHtml,
     whatsappQrCode,
   };
 }
@@ -71,11 +74,11 @@ export async function action({ request, params }: { request: Request; params: Pr
   const id = parseInt(eventId, 10);
   if (Number.isNaN(id)) return { error: "Invalid event" };
   const db = getDb();
-  const event = db.prepare("SELECT id, event_date, time FROM events WHERE id = ?").get(id) as
-    | { id: number; event_date: string; time: string | null }
+  const event = db.prepare("SELECT id, event_date, time, custom FROM events WHERE id = ?").get(id) as
+    | { id: number; event_date: string; time: string | null; custom: number }
     | undefined;
   if (!event) return { error: "Event not found" };
-  if (!isEventDate(event.event_date)) return { error: "Event not found" };
+  if (!isEventDate(event.event_date) && !event.custom) return { error: "Event not found" };
   const ended = isEventEnded(event);
   const started = isEventStarted(event);
 
@@ -177,12 +180,14 @@ export async function action({ request, params }: { request: Request; params: Pr
     const description = formData.get("description");
     const location = formData.get("location");
     const time = formData.get("time");
+    const content = formData.get("content");
     updateEvent(db, id, {
       ...(typeof event_date === "string" && event_date.trim() && { event_date: event_date.trim() }),
       ...(title !== undefined && { title: title === "" ? null : String(title).trim() || null }),
       ...(description !== undefined && { description: description === "" ? null : String(description).trim() || null }),
       ...(location !== undefined && { location: location === "" ? null : String(location).trim() || null }),
       ...(time !== undefined && { time: time === "" ? null : String(time).trim() || null }),
+      ...(content !== undefined && { content: content === "" ? null : String(content).trim() || null }),
     });
     // Admins can add/remove themselves as a host of this event.
     setEventHost(db, id, admin.id, formData.get("host_self") === "on");
@@ -250,7 +255,7 @@ function formatBlockedDate(unixSeconds: number) {
 }
 
 export default function EventDetail() {
-  const { event, signups, userSignedUp, currentUserGuestCount, isAdmin, eventEnded, eventStarted, isFirstTimer, hosts, userIsHost, donationQrCode, whatsappQrCode } = useLoaderData<typeof loader>();
+  const { event, signups, userSignedUp, currentUserGuestCount, isAdmin, eventEnded, eventStarted, isFirstTimer, hosts, userIsHost, donationQrCode, whatsappQrCode, contentHtml } = useLoaderData<typeof loader>();
   const actionData = useActionData<typeof action>();
   const [signupModalOpen, setSignupModalOpen] = useState(false);
   const [signupConfirmModalOpen, setSignupConfirmModalOpen] = useState(false);
@@ -461,6 +466,19 @@ export default function EventDetail() {
               className={inputClass}
               aria-label="Description"
             />
+            <div>
+              <textarea
+                name="content"
+                defaultValue={event.content ?? ""}
+                placeholder="Content (optional) — Markdown supported"
+                rows={5}
+                className={`${inputClass} resize-y min-h-[120px]`}
+                aria-label="Content"
+              />
+              <p className="mt-1.5 text-[13px] text-neutral-500 dark:text-neutral-400">
+                Markdown supported — **bold**, _italic_, lists, links, etc.
+              </p>
+            </div>
             <label className="flex items-center gap-2.5 text-[15px] text-neutral-700 dark:text-neutral-300 py-1">
               <input
                 type="checkbox"
@@ -532,8 +550,15 @@ export default function EventDetail() {
                 ))}
               </div>
             )}
+            {contentHtml && (
+              <div
+                className="text-[15px] text-neutral-700 dark:text-neutral-200 mb-6 leading-relaxed [&_p]:mb-3 last:[&_p]:mb-0 [&_a]:text-[#f56772] [&_a]:underline [&_strong]:font-semibold [&_strong]:text-neutral-900 dark:[&_strong]:text-white [&_ul]:list-disc [&_ul]:pl-5 [&_ul]:mb-3 [&_ol]:list-decimal [&_ol]:pl-5 [&_ol]:mb-3 [&_blockquote]:border-l-2 [&_blockquote]:border-neutral-300 dark:[&_blockquote]:border-neutral-600 [&_blockquote]:pl-3 [&_blockquote]:italic [&_code]:rounded [&_code]:bg-neutral-200/80 dark:[&_code]:bg-neutral-700/60 [&_code]:px-1 [&_code]:py-0.5 [&_code]:text-[13px]"
+                dangerouslySetInnerHTML={{ __html: contentHtml }}
+              />
+            )}
           </>
         )}
+        {!event.custom && (
         <div className="mb-8 rounded-2xl overflow-hidden bg-neutral-200/80 dark:bg-neutral-700/60 aspect-[21/9] flex items-center justify-center shadow-inner ring-1 ring-neutral-200/60 dark:ring-neutral-600/40">
           <img
             src="/football-session.avif"
@@ -564,6 +589,7 @@ export default function EventDetail() {
             <path d="M2 12h20" />
           </svg>
         </div>
+        )}
 
         {actionData?.error && !("blocked" in actionData && actionData.blocked) && (
           <div className="rounded-2xl bg-amber-500/10 dark:bg-amber-500/15 text-amber-700 dark:text-amber-400 px-4 py-3 mb-6 text-[15px]">
@@ -571,6 +597,7 @@ export default function EventDetail() {
           </div>
         )}
 
+        {!event.custom && (
         <section className="mt-12 pt-8 border-t border-neutral-200/80 dark:border-neutral-700/60 space-y-8">
           <div>
             <h2 className="text-[17px] font-semibold text-neutral-900 dark:text-white mb-3">
@@ -697,6 +724,7 @@ export default function EventDetail() {
             </a>
           </div>
         </section>
+        )}
 
         {signupModalOpen && (
           <div

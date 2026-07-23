@@ -60,6 +60,17 @@ export async function requireAdmin(request: Request): Promise<User> {
   return user;
 }
 
+/** Super admins are the only ones who can grant or revoke admin status. */
+export function isSuperAdmin(user: User): boolean {
+  return !!(user as { is_super_admin?: number }).is_super_admin;
+}
+
+export async function requireSuperAdmin(request: Request): Promise<User> {
+  const user = await requireVerifiedUser(request);
+  if (!isSuperAdmin(user)) throw new Response("Forbidden", { status: 403 });
+  return user;
+}
+
 export async function login(
   request: Request,
   identifier: string,

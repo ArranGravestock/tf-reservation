@@ -23,7 +23,7 @@ function createDb(): Database.Database {
 
     CREATE TABLE IF NOT EXISTS events (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
-      event_date TEXT UNIQUE NOT NULL,
+      event_date TEXT NOT NULL,
       created_at INTEGER NOT NULL DEFAULT (unixepoch())
     );
 
@@ -75,6 +75,11 @@ function createDb(): Database.Database {
   if (!cols.some((c) => c.name === "is_admin")) {
     db.exec("ALTER TABLE users ADD COLUMN is_admin INTEGER NOT NULL DEFAULT 0");
   }
+  cols = db.prepare("PRAGMA table_info(users)").all() as { name: string }[];
+  if (!cols.some((c) => c.name === "is_super_admin")) {
+    // Super admins are the only ones who can grant/revoke admin status.
+    db.exec("ALTER TABLE users ADD COLUMN is_super_admin INTEGER NOT NULL DEFAULT 0");
+  }
   // Optional event details (admins can edit)
   let eventCols = db.prepare("PRAGMA table_info(events)").all() as { name: string }[];
   for (const col of ["title", "description", "location", "time"]) {
@@ -86,6 +91,46 @@ function createDb(): Database.Database {
   eventCols = db.prepare("PRAGMA table_info(events)").all() as { name: string }[];
   if (!eventCols.some((c) => c.name === "cancelled")) {
     db.exec("ALTER TABLE events ADD COLUMN cancelled INTEGER NOT NULL DEFAULT 0");
+  }
+  eventCols = db.prepare("PRAGMA table_info(events)").all() as { name: string }[];
+  if (!eventCols.some((c) => c.name === "custom")) {
+    // One-off events an admin created directly, as opposed to the auto-generated
+    // Saturday/Wednesday recurring ones; exempt from the recurring-day gate.
+    db.exec("ALTER TABLE events ADD COLUMN custom INTEGER NOT NULL DEFAULT 0");
+  }
+  eventCols = db.prepare("PRAGMA table_info(events)").all() as { name: string }[];
+  if (!eventCols.some((c) => c.name === "content")) {
+    // Longer-form, Markdown-rendered content shown on the event page — separate
+    // from the plain-text `description` used in listings/summaries.
+    db.exec("ALTER TABLE events ADD COLUMN content TEXT");
+  }
+  // Drop the legacy UNIQUE(event_date) constraint so multiple events (e.g. a
+  // custom event alongside the regular recurring one) can share a date. SQLite
+  // can't drop an inline UNIQUE column constraint via ALTER TABLE, so rebuild
+  // the table without it, preserving all rows and columns.
+  const eventsTableDef = db
+    .prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'events'")
+    .get() as { sql: string } | undefined;
+  if (eventsTableDef && /event_date\s+TEXT\s+UNIQUE/i.test(eventsTableDef.sql)) {
+    db.exec(`
+      CREATE TABLE events_new (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        event_date TEXT NOT NULL,
+        created_at INTEGER NOT NULL DEFAULT (unixepoch()),
+        title TEXT,
+        description TEXT,
+        location TEXT,
+        time TEXT,
+        cancelled INTEGER NOT NULL DEFAULT 0,
+        custom INTEGER NOT NULL DEFAULT 0,
+        content TEXT
+      );
+      INSERT INTO events_new (id, event_date, created_at, title, description, location, time, cancelled, custom, content)
+        SELECT id, event_date, created_at, title, description, location, time, cancelled, custom, content FROM events;
+      DROP TABLE events;
+      ALTER TABLE events_new RENAME TO events;
+      CREATE INDEX IF NOT EXISTS idx_events_date ON events(event_date);
+    `);
   }
   let signupCols = db.prepare("PRAGMA table_info(event_signups)").all() as { name: string }[];
   if (!signupCols.some((c) => c.name === "guest_count")) {
@@ -169,6 +214,16 @@ function createDb(): Database.Database {
     }
   }
 
+  // ArranGravestock is the default super admin: only super admins can grant or
+  // revoke admin status. Idempotent and re-applies if the DB is ever recreated.
+  const superAdminPromote = db.prepare(
+    "UPDATE users SET is_admin = 1, is_super_admin = 1 WHERE LOWER(username) = LOWER(?) AND is_super_admin = 0"
+  );
+  const superAdminResult = superAdminPromote.run("ArranGravestock");
+  if (superAdminResult.changes > 0) {
+    console.log('[db] Promoted "ArranGravestock" to super admin');
+  }
+
   return db;
 }
 
@@ -186,6 +241,7 @@ export type User = {
   reset_token?: string | null;
   reset_token_expires?: number | null;
   is_admin?: number;
+  is_super_admin?: number;
   first_name?: string | null;
   last_name?: string | null;
   late_count?: number;
@@ -206,6 +262,8 @@ export type Event = {
   location?: string | null;
   time?: string | null;
   cancelled?: number;
+  custom?: number;
+  content?: string | null;
 };
 
 const DEFAULT_EVENT_HOUR = 10;
@@ -321,11 +379,17 @@ export function getNextSaturdays(count: number): string[] {
 
 /** Ensure the next `count` occurrences of every recurring event day exist. */
 export function ensureRecurringEvents(db: Database.Database, count = 12) {
-  const withTime = db.prepare("INSERT OR IGNORE INTO events (event_date, time) VALUES (?, ?)");
-  const withoutTime = db.prepare("INSERT OR IGNORE INTO events (event_date) VALUES (?)");
+  // event_date is no longer globally unique (custom events can share a date
+  // with a recurring one), so dedupe recurring events explicitly by checking
+  // for an existing non-custom event on that date instead of relying on a
+  // DB-level UNIQUE constraint.
+  const existing = db.prepare("SELECT 1 FROM events WHERE event_date = ? AND custom = 0");
+  const withTime = db.prepare("INSERT INTO events (event_date, time) VALUES (?, ?)");
+  const withoutTime = db.prepare("INSERT INTO events (event_date) VALUES (?)");
   for (const cfg of RECURRING_EVENT_DAYS) {
     const dates = getNextWeekdayDates(count, cfg.day, cfg.cutoffHour, cfg.cutoffMinute);
     for (const date of dates) {
+      if (existing.get(date)) continue;
       if (cfg.time) withTime.run(date, cfg.time);
       else withoutTime.run(date);
     }
@@ -354,6 +418,7 @@ export function updateEvent(
     description?: string | null;
     location?: string | null;
     time?: string | null;
+    content?: string | null;
   }
 ) {
   const fields: string[] = [];
@@ -378,9 +443,40 @@ export function updateEvent(
     fields.push("time = ?");
     values.push(updates.time || null);
   }
+  if (updates.content !== undefined) {
+    fields.push("content = ?");
+    values.push(updates.content || null);
+  }
   if (fields.length === 0) return;
   values.push(eventId);
   db.prepare(`UPDATE events SET ${fields.join(", ")} WHERE id = ?`).run(...values);
+}
+
+/** Create a one-off admin event on any date (not restricted to the recurring Saturday/Wednesday slots). */
+export function createCustomEvent(
+  db: Database.Database,
+  opts: {
+    event_date: string;
+    title?: string | null;
+    description?: string | null;
+    location?: string | null;
+    time?: string | null;
+    content?: string | null;
+  }
+): Event {
+  const run = db
+    .prepare(
+      "INSERT INTO events (event_date, title, description, location, time, content, custom) VALUES (?, ?, ?, ?, ?, ?, 1)"
+    )
+    .run(
+      opts.event_date,
+      opts.title || null,
+      opts.description || null,
+      opts.location || null,
+      opts.time || null,
+      opts.content || null
+    );
+  return db.prepare("SELECT * FROM events WHERE id = ?").get(run.lastInsertRowid) as Event;
 }
 
 /** Usernames that host every event by default (case-insensitive). */
