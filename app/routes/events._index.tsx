@@ -2,7 +2,7 @@ import { Form, Link, useLoaderData, useActionData } from "react-router";
 import { useState, useEffect } from "react";
 import type { Route } from "./+types/events._index";
 import { requireVerifiedUser, isAdmin } from "~/lib/auth.server";
-import { getDb, ensureSaturdayEvents, isEventEnded, isEventStarted, isUserBlocked, type Event } from "~/lib/db";
+import { getDb, ensureSaturdayEvents, isEventEnded, isEventStarted, isUserBlocked, type Event } from "~/lib/db.server";
 import { DEFAULT_PROFILE_EMOJI } from "~/lib/emoji";
 import { SessionImage } from "~/components/SessionImage";
 

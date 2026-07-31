@@ -10,7 +10,7 @@ import {
   getDb,
   isMessageBanned,
   setUserMessageBanned,
-} from "~/lib/db";
+} from "~/lib/db.server";
 import { MessageAvatar } from "~/components/MessageAvatar";
 import { MessageComposer } from "~/components/MessageComposer";
 

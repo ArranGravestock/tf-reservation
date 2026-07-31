@@ -1,7 +1,7 @@
 import { redirect } from "react-router";
 import type { Route } from "./+types/notices.dismiss";
 import { requireVerifiedUser } from "~/lib/auth.server";
-import { getDb, dismissNotice } from "~/lib/db";
+import { getDb, dismissNotice } from "~/lib/db.server";
 
 export async function action({ request }: Route.ActionArgs) {
   if (request.method !== "POST") throw new Response("Method Not Allowed", { status: 405 });

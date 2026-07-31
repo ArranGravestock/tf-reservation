@@ -1,7 +1,7 @@
 import { Form, Link, redirect, useActionData } from "react-router";
 import type { Route } from "./+types/events.create";
 import { requireAdmin } from "~/lib/auth.server";
-import { getDb, createCustomEvent } from "~/lib/db";
+import { getDb, createCustomEvent } from "~/lib/db.server";
 
 export function meta({}: Route.MetaArgs) {
   return [{ title: "Create event – Terrible Football Liverpool" }];

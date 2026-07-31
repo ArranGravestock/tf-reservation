@@ -5,7 +5,7 @@ const PAGE_SIZE_OPTIONS = [10, 20, 50, 100] as const;
 const DEFAULT_PAGE_SIZE = 20;
 import type { Route } from "./+types/admin.users";
 import { createVerificationToken, requireAdmin, requireSuperAdmin, isSuperAdmin } from "~/lib/auth.server";
-import { getDb, isUserBlocked, isEventEnded, LATE_BLOCK_SECONDS } from "~/lib/db";
+import { getDb, isUserBlocked, isEventEnded, LATE_BLOCK_SECONDS } from "~/lib/db.server";
 import { isEmailConfigured, sendVerificationEmail } from "~/lib/email.server";
 
 export function meta({}: Route.MetaArgs) {

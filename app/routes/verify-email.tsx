@@ -1,7 +1,7 @@
 import { redirect, useLoaderData, useSearchParams } from "react-router";
 import type { Route } from "./+types/verify-email";
 import { getUserId } from "~/lib/auth.server";
-import { getDb } from "~/lib/db";
+import { getDb } from "~/lib/db.server";
 
 export function meta({}: Route.MetaArgs) {
   return [{ title: "Verify email – Terrible Football Liverpool" }];

@@ -1,7 +1,7 @@
 import { redirect } from "react-router";
 import type { Route } from "./+types/late-warning.dismiss";
 import { requireVerifiedUser } from "~/lib/auth.server";
-import { getDb, acknowledgeLateWarning } from "~/lib/db";
+import { getDb, acknowledgeLateWarning } from "~/lib/db.server";
 
 export async function action({ request }: Route.ActionArgs) {
   if (request.method !== "POST") throw new Response("Method Not Allowed", { status: 405 });

@@ -1,9 +1,15 @@
 import { Form, Link, redirect, useActionData, useLoaderData, useNavigate, useSearchParams } from "react-router";
 import { useState, useEffect } from "react";
 import type { Route } from "./+types/settings";
-import { createVerificationToken, requireVerifiedUser, updateUserProfile } from "~/lib/auth.server";
-import { getDb } from "~/lib/db";
-import { isEmailConfigured, sendVerificationEmail } from "~/lib/email.server";
+import {
+  createAccountDeletionToken,
+  createVerificationToken,
+  requireVerifiedUser,
+  verifyPassword,
+  updateUserProfile,
+} from "~/lib/auth.server";
+import { cancelAccountDeletion, getDb, setAccountDeletionToken } from "~/lib/db.server";
+import { isEmailConfigured, sendAccountDeletionConfirmEmail, sendVerificationEmail } from "~/lib/email.server";
 import { validatePassword, MAX_PASSWORD_LENGTH } from "~/lib/password";
 import { PasswordHints } from "~/components/PasswordHints";
 import { ANIMAL_EMOJIS, DEFAULT_PROFILE_EMOJI } from "~/lib/emoji";
@@ -73,6 +79,8 @@ export async function loader({ request }: { request: Request }) {
       lastName: user.last_name ?? null,
       profileEmoji: user.profile_emoji ?? null,
     },
+    deletionPending: !!user.deletion_token,
+    scheduledDeletionAt: user.scheduled_deletion_at ?? null,
   };
 }
 
@@ -180,16 +188,50 @@ export async function action({ request }: { request: Request }) {
     return redirect("/settings?updated=password");
   }
 
+  if (intent === "request-deletion") {
+    const currentPassword = String(formData.get("currentPassword") ?? "");
+    if (!currentPassword.trim()) {
+      return { intent: "request-deletion", error: "Current password is required to delete your account." };
+    }
+    const ok = await verifyPassword(currentPassword, user.password_hash);
+    if (!ok) return { intent: "request-deletion", error: "Current password is incorrect." };
+
+    const { token, expires } = createAccountDeletionToken();
+    const db = getDb();
+    setAccountDeletionToken(db, user.id, token, Math.floor(expires / 1000));
+    const confirmUrl = `${new URL(request.url).origin}/delete-account/confirm?token=${token}`;
+    if (isEmailConfigured()) {
+      try {
+        await sendAccountDeletionConfirmEmail(user.email, confirmUrl, user.username);
+      } catch (err) {
+        console.error("[settings] Failed to send account deletion email:", err);
+        return {
+          intent: "request-deletion",
+          error: "We couldn't send the confirmation email. Try again in a moment.",
+        };
+      }
+    } else {
+      console.log("[dev] Account deletion confirm link:", confirmUrl);
+    }
+    return redirect("/settings?deletion=requested");
+  }
+
+  if (intent === "cancel-deletion") {
+    cancelAccountDeletion(getDb(), user.id);
+    return redirect("/settings?deletion=cancelled");
+  }
+
   return redirect("/settings");
 }
 
 export default function Settings() {
-  const { user } = useLoaderData<typeof loader>();
+  const { user, deletionPending, scheduledDeletionAt } = useLoaderData<typeof loader>();
   const actionData = useActionData<typeof action>();
   const [searchParams] = useSearchParams();
   const updatedProfile = searchParams.get("updated") === "profile";
   const updatedEmail = searchParams.get("updated") === "email";
   const updatedPassword = searchParams.get("updated") === "password";
+  const deletionCancelled = searchParams.get("deletion") === "cancelled";
   const resolvedInitialEmoji =
     user.profileEmoji && ANIMAL_EMOJIS.includes(user.profileEmoji as (typeof ANIMAL_EMOJIS)[number])
       ? user.profileEmoji
@@ -470,6 +512,87 @@ export default function Settings() {
             Save password
           </button>
         </Form>
+
+        <div className="mt-8 rounded-3xl bg-white dark:bg-neutral-800/80 p-6 shadow-sm dark:shadow-none border border-red-500/20 dark:border-red-500/25">
+          <h2 className="text-[17px] font-semibold text-neutral-900 dark:text-white mb-1">
+            Delete account
+          </h2>
+
+          {deletionCancelled && (
+            <div className="rounded-2xl bg-green-500/10 dark:bg-green-500/15 text-green-700 dark:text-green-400 px-4 py-3 mb-4 text-[15px]">
+              Deletion request cancelled.
+            </div>
+          )}
+
+          {scheduledDeletionAt ? (
+            <>
+              <p className="text-[15px] text-neutral-500 dark:text-neutral-400 mb-4 leading-relaxed">
+                Your account is scheduled for permanent deletion on{" "}
+                <strong className="text-neutral-900 dark:text-white">
+                  {new Date(scheduledDeletionAt * 1000).toLocaleDateString("en-GB", {
+                    day: "numeric",
+                    month: "long",
+                    year: "numeric",
+                  })}
+                </strong>
+                . You can cancel any time before then.
+              </p>
+              <Form method="post">
+                <input type="hidden" name="intent" value="cancel-deletion" />
+                <button
+                  type="submit"
+                  className="w-full rounded-xl border border-neutral-300 dark:border-neutral-600 px-4 py-3 text-[17px] font-medium text-neutral-700 dark:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-700/50 transition-colors"
+                >
+                  Cancel deletion
+                </button>
+              </Form>
+            </>
+          ) : deletionPending ? (
+            <>
+              <p className="text-[15px] text-neutral-500 dark:text-neutral-400 mb-4 leading-relaxed">
+                We sent a confirmation link to <strong>{user.email}</strong>. Click it to confirm
+                — your account will then be deleted in 30 days. The link expires in 24 hours.
+              </p>
+              <Form method="post">
+                <input type="hidden" name="intent" value="cancel-deletion" />
+                <button
+                  type="submit"
+                  className="w-full rounded-xl border border-neutral-300 dark:border-neutral-600 px-4 py-3 text-[17px] font-medium text-neutral-700 dark:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-700/50 transition-colors"
+                >
+                  Cancel request
+                </button>
+              </Form>
+            </>
+          ) : (
+            <Form method="post" className="space-y-5">
+              <input type="hidden" name="intent" value="request-deletion" />
+              <p className="text-[15px] text-neutral-500 dark:text-neutral-400 leading-relaxed">
+                We'll email you a confirmation link. Once confirmed, your account and all your
+                data will be permanently deleted after 30 days — you can cancel any time before
+                then.
+              </p>
+              {actionData?.intent === "request-deletion" && actionData?.error && (
+                <div className="rounded-xl bg-red-500/10 text-red-600 dark:text-red-400 px-3 py-2.5 text-[15px]">
+                  {actionData.error}
+                </div>
+              )}
+              <PasswordInput
+                id="deletionCurrentPassword"
+                name="currentPassword"
+                label="Current password"
+                autoComplete="current-password"
+                required
+                placeholder="********"
+              />
+              <button
+                type="submit"
+                className="w-full rounded-xl bg-red-600 px-4 py-3 text-[17px] font-medium text-white hover:opacity-90 active:opacity-80 transition-opacity"
+              >
+                Delete my account
+              </button>
+            </Form>
+          )}
+        </div>
       </div>
     </main>
   );

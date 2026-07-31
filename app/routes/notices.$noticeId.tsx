@@ -1,7 +1,7 @@
 import { Link, useLoaderData } from "react-router";
 import type { Route } from "./+types/notices.$noticeId";
 import { requireVerifiedUser } from "~/lib/auth.server";
-import { getDb, getNoticeById } from "~/lib/db";
+import { getDb, getNoticeById } from "~/lib/db.server";
 
 export function meta({}: Route.MetaArgs) {
   return [{ title: "Notice – Terrible Football Liverpool" }];

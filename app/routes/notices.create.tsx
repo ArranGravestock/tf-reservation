@@ -1,7 +1,7 @@
 import { Form, Link, redirect, useActionData, useLoaderData } from "react-router";
 import type { Route } from "./+types/notices.create";
 import { requireAdmin } from "~/lib/auth.server";
-import { getDb, ensureSaturdayEvents, createNotice, type Event } from "~/lib/db";
+import { getDb, ensureSaturdayEvents, createNotice, type Event } from "~/lib/db.server";
 
 export function meta({}: Route.MetaArgs) {
   return [{ title: "Create notice – Terrible Football Liverpool" }];

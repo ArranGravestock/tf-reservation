@@ -14,6 +14,7 @@ export default [
   route("verify-email", "routes/verify-email.tsx"),
   route("logout", "routes/logout.tsx"),
   route("settings", "routes/settings.tsx"),
+  route("delete-account/confirm", "routes/delete-account.confirm.tsx"),
   route("admin/users", "routes/admin.users.tsx"),
   route("admin/messages", "routes/admin.messages.tsx"),
   route("admin/messages/:conversationId", "routes/admin.messages.$conversationId.tsx"),

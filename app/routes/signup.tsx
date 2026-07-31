@@ -3,7 +3,7 @@ import { Form, redirect, useActionData } from "react-router";
 import type { Route } from "./+types/signup";
 import { getUserId } from "~/lib/auth.server";
 import { hashPassword, createVerificationToken } from "~/lib/auth.server";
-import { getDb } from "~/lib/db";
+import { getDb } from "~/lib/db.server";
 import { isEmailConfigured, sendVerificationEmail } from "~/lib/email.server";
 import { validatePassword, MAX_PASSWORD_LENGTH } from "~/lib/password";
 import { PasswordHints } from "~/components/PasswordHints";

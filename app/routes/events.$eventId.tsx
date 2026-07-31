@@ -3,7 +3,7 @@ import { Form, Link, redirect, useLoaderData, useActionData } from "react-router
 import QRCode from "qrcode";
 import type { Route } from "./+types/events.$eventId";
 import { isAdmin, requireAdmin, requireVerifiedUser } from "~/lib/auth.server";
-import { getDb, updateEvent, isEventEnded, isEventStarted, isEventDate, getEventHosts, setEventHost, isUserBlocked, LATE_BLOCK_SECONDS, type Event } from "~/lib/db";
+import { getDb, updateEvent, isEventEnded, isEventStarted, isEventDate, getEventHosts, setEventHost, isUserBlocked, LATE_BLOCK_SECONDS, type Event } from "~/lib/db.server";
 import { DEFAULT_PROFILE_EMOJI } from "~/lib/emoji";
 import { renderMarkdown } from "~/lib/markdown.server";
 

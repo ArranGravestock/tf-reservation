@@ -1,7 +1,7 @@
 import { Link, useLoaderData } from "react-router";
 import type { Route } from "./+types/notices";
 import { requireAdmin } from "~/lib/auth.server";
-import { getDb, getNoticesList } from "~/lib/db";
+import { getDb, getNoticesList } from "~/lib/db.server";
 
 export function meta({}: Route.MetaArgs) {
   return [{ title: "Notices – Terrible Football Liverpool" }];

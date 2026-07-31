@@ -1,7 +1,7 @@
 import bcrypt from "bcryptjs";
 import crypto from "node:crypto";
 import { redirect } from "react-router";
-import { getDb, type User } from "./db";
+import { getDb, type User } from "./db.server";
 import { getSession, commitSession, destroySession } from "./session.server";
 import { isEmailConfigured, sendPasswordResetEmail } from "./email.server";
 import { validatePassword } from "./password";
@@ -110,6 +110,12 @@ const RESET_TOKEN_EXPIRY_MS = 60 * 60 * 1000; // 1 hour
 export function createPasswordResetToken(): { token: string; expires: number } {
   const token = crypto.randomBytes(32).toString("hex");
   const expires = Date.now() + RESET_TOKEN_EXPIRY_MS;
+  return { token, expires };
+}
+
+export function createAccountDeletionToken(): { token: string; expires: number } {
+  const token = crypto.randomBytes(32).toString("hex");
+  const expires = Date.now() + 24 * 60 * 60 * 1000; // 24h
   return { token, expires };
 }
 

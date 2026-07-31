@@ -222,6 +222,15 @@ function createDb(): Database.Database {
     // without affecting their event sign-ups.
     db.exec("ALTER TABLE users ADD COLUMN message_banned INTEGER NOT NULL DEFAULT 0");
   }
+  cols = db.prepare("PRAGMA table_info(users)").all() as { name: string }[];
+  if (!cols.some((c) => c.name === "deletion_token")) {
+    // Self-service account deletion: deletion_token/expires gate the initial
+    // email-confirmation step; scheduled_deletion_at (set once confirmed) is
+    // the actual 30-day countdown, cleared entirely if the user cancels.
+    db.exec("ALTER TABLE users ADD COLUMN deletion_token TEXT");
+    db.exec("ALTER TABLE users ADD COLUMN deletion_token_expires INTEGER");
+    db.exec("ALTER TABLE users ADD COLUMN scheduled_deletion_at INTEGER");
+  }
 
   // Enforce case-insensitive uniqueness for usernames and emails at the DB level
   // (the app also checks with LOWER(), but these indexes guard against races and
@@ -291,6 +300,9 @@ export type User = {
   late_count?: number;
   blocked_until?: number | null;
   message_banned?: number;
+  deletion_token?: string | null;
+  deletion_token_expires?: number | null;
+  scheduled_deletion_at?: number | null;
 };
 
 /** True while the user is serving a lateness block (blocked_until is in the future). */
@@ -305,6 +317,72 @@ export function isMessageBanned(user: { message_banned?: number }): boolean {
 
 export function setUserMessageBanned(db: Database.Database, userId: number, banned: boolean): void {
   db.prepare("UPDATE users SET message_banned = ? WHERE id = ?").run(banned ? 1 : 0, userId);
+}
+
+export const ACCOUNT_DELETION_GRACE_SECONDS = 30 * 24 * 60 * 60;
+
+/** Store a fresh deletion-confirmation token (does NOT start the 30-day countdown yet). */
+export function setAccountDeletionToken(
+  db: Database.Database,
+  userId: number,
+  token: string,
+  expiresUnixSeconds: number
+): void {
+  db.prepare(
+    "UPDATE users SET deletion_token = ?, deletion_token_expires = ? WHERE id = ?"
+  ).run(token, expiresUnixSeconds, userId);
+}
+
+/** Confirms a pending deletion via the emailed token: clears the token and starts the 30-day countdown. Returns the user id, or null if the token is invalid/expired. */
+export function confirmAccountDeletionByToken(db: Database.Database, token: string): number | null {
+  const row = db
+    .prepare("SELECT id FROM users WHERE deletion_token = ? AND deletion_token_expires > unixepoch()")
+    .get(token) as { id: number } | undefined;
+  if (!row) return null;
+  const scheduledAt = Math.floor(Date.now() / 1000) + ACCOUNT_DELETION_GRACE_SECONDS;
+  db.prepare(
+    "UPDATE users SET deletion_token = NULL, deletion_token_expires = NULL, scheduled_deletion_at = ? WHERE id = ?"
+  ).run(scheduledAt, row.id);
+  return row.id;
+}
+
+/** Cancels any pending deletion request or confirmed countdown for this user. */
+export function cancelAccountDeletion(db: Database.Database, userId: number): void {
+  db.prepare(
+    "UPDATE users SET deletion_token = NULL, deletion_token_expires = NULL, scheduled_deletion_at = NULL WHERE id = ?"
+  ).run(userId);
+}
+
+/** Permanently deletes a user and everything they own (foreign keys aren't enforced by SQLite here, so this is done by hand rather than relying on ON DELETE CASCADE). */
+export function deleteUserAccount(db: Database.Database, userId: number): void {
+  const run = db.transaction((uid: number) => {
+    db.prepare("DELETE FROM event_signups WHERE user_id = ?").run(uid);
+    db.prepare("DELETE FROM event_hosts WHERE user_id = ?").run(uid);
+    db.prepare("DELETE FROM notice_dismissals WHERE user_id = ?").run(uid);
+    db.prepare("UPDATE notices SET created_by = NULL WHERE created_by = ?").run(uid);
+    const convo = db.prepare("SELECT id FROM organiser_conversations WHERE user_id = ?").get(uid) as
+      | { id: number }
+      | undefined;
+    if (convo) {
+      db.prepare("DELETE FROM organiser_messages WHERE conversation_id = ?").run(convo.id);
+      db.prepare("DELETE FROM organiser_conversations WHERE id = ?").run(convo.id);
+    }
+    // Messages this user sent in anyone else's conversation (e.g. an admin's replies).
+    db.prepare("DELETE FROM organiser_messages WHERE sender_id = ?").run(uid);
+    db.prepare("DELETE FROM users WHERE id = ?").run(uid);
+  });
+  run(userId);
+}
+
+/** Deletes any account whose 30-day countdown has elapsed. Call periodically — see the throttled call in getDb(). */
+export function sweepExpiredAccountDeletions(db: Database.Database): void {
+  const due = db
+    .prepare("SELECT id FROM users WHERE scheduled_deletion_at IS NOT NULL AND scheduled_deletion_at <= unixepoch()")
+    .all() as { id: number }[];
+  for (const { id } of due) {
+    console.log(`[db] Deleting account ${id} — 30-day deletion grace period elapsed`);
+    deleteUserAccount(db, id);
+  }
 }
 
 export type Event = {
@@ -375,10 +453,20 @@ export type EventSignup = {
   guest_count?: number;
 };
 
+const DELETION_SWEEP_INTERVAL_MS = 15 * 60 * 1000;
+let lastDeletionSweepAt = 0;
+
 export function getDb(): Database.Database {
   if (!_db) {
     ensureDbDirectory();
     _db = createDb();
+  }
+  // Lazily sweep expired account deletions — throttled so it only runs the
+  // check query at most once per interval, not on every request.
+  const now = Date.now();
+  if (now - lastDeletionSweepAt > DELETION_SWEEP_INTERVAL_MS) {
+    lastDeletionSweepAt = now;
+    sweepExpiredAccountDeletions(_db);
   }
   return _db;
 }

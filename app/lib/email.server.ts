@@ -160,6 +160,25 @@ export async function sendAdminContactEmail(
   });
 }
 
+export async function sendAccountDeletionConfirmEmail(
+  to: string,
+  confirmUrl: string,
+  username: string
+): Promise<void> {
+  await sendMail({
+    to,
+    subject: "Confirm account deletion – Terrible Football Liverpool",
+    text: `Hi ${username},\n\nWe received a request to delete your account. Confirm below if this was you — your account will then be permanently deleted in 30 days, and you can cancel any time before then from your account settings.\n\n${confirmUrl}\n\nThis link expires in 24 hours. If you didn't request this, ignore this email and your account will be unaffected.`,
+    html: layout(
+      "Confirm account deletion",
+      `<p style="font-size:15px;line-height:1.5;">Hi <strong>${escapeHtml(username)}</strong>,</p>
+       <p style="font-size:15px;line-height:1.5;">We received a request to delete your account. Confirm below if this was you — your account will then be permanently deleted in <strong>30 days</strong>, and you can cancel any time before then from your account settings.</p>
+       <p style="margin:24px 0;text-align:center;">${button(confirmUrl, "Confirm account deletion")}</p>
+       <p style="font-size:13px;color:#8e8e93;word-break:break-all;overflow-wrap:anywhere;">This link expires in 24 hours. If you didn't request this, ignore this email — your account will be unaffected.</p>`
+    ),
+  });
+}
+
 export async function sendOrganiserReplyEmail(
   to: string,
   opts: { replierUsername: string; message: string; conversationUrl: string }

@@ -14,7 +14,7 @@ import {
 
 import type { Route } from "./+types/root";
 import { getUser } from "~/lib/auth.server";
-import { getDb, getNoticesForUser, getLateWarningForUser } from "~/lib/db";
+import { getDb, getNoticesForUser, getLateWarningForUser } from "~/lib/db.server";
 import "./app.css";
 
 export const links: Route.LinksFunction = () => [

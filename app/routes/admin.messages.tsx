@@ -2,7 +2,7 @@ import { useEffect } from "react";
 import { Link, useLoaderData, useRevalidator } from "react-router";
 import type { Route } from "./+types/admin.messages";
 import { requireAdmin } from "~/lib/auth.server";
-import { getConversationsList, getDb } from "~/lib/db";
+import { getConversationsList, getDb } from "~/lib/db.server";
 
 export function meta({}: Route.MetaArgs) {
   return [{ title: "Messages – Terrible Football Liverpool" }];
