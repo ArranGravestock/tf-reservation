@@ -9,21 +9,22 @@ export function meta({}: Route.MetaArgs) {
 export async function loader({ request }: Route.LoaderArgs) {
   const url = new URL(request.url);
   const token = url.searchParams.get("token");
-  if (!token) return { confirmed: false };
+  if (!token) return { confirmed: false, deletionDate: null };
 
   const db = getDb();
   const userId = confirmAccountDeletionByToken(db, token);
-  if (!userId) return { confirmed: false };
-  return { confirmed: true };
-}
+  if (!userId) return { confirmed: false, deletionDate: null };
 
-function formatDeletionDate() {
-  const d = new Date(Date.now() + ACCOUNT_DELETION_GRACE_SECONDS * 1000);
-  return d.toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" });
+  const deletionDate = new Date(Date.now() + ACCOUNT_DELETION_GRACE_SECONDS * 1000).toLocaleDateString("en-GB", {
+    day: "numeric",
+    month: "long",
+    year: "numeric",
+  });
+  return { confirmed: true, deletionDate };
 }
 
 export default function DeleteAccountConfirm() {
-  const { confirmed } = useLoaderData<typeof loader>();
+  const { confirmed, deletionDate } = useLoaderData<typeof loader>();
 
   return (
     <main className="min-h-dvh flex flex-col items-center justify-center bg-[#f5f5f7] dark:bg-[#1c1c1e] p-6">
@@ -33,7 +34,7 @@ export default function DeleteAccountConfirm() {
         </h1>
         {confirmed ? (
           <p className="text-[15px] text-neutral-500 dark:text-neutral-400 leading-relaxed">
-            Your account is scheduled for deletion on <strong>{formatDeletionDate()}</strong>. You
+            Your account is scheduled for deletion on <strong>{deletionDate}</strong>. You
             can sign in and cancel this any time before then from your account settings.
           </p>
         ) : (
