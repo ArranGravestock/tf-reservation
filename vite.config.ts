@@ -20,7 +20,7 @@ export default defineConfig({
       manifest: {
         // Fixed app identity PWABuilder/TWA use to key store updates —
         // changing this after publishing would look like a new app install.
-        id: "/events",
+        id: "terrible-football",
         name: "Terrible Football Liverpool",
         short_name: "Terrible FC",
         description: "Sign up for Terrible Football Liverpool games.",
