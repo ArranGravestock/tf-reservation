@@ -5,3 +5,7 @@
 # React Router
 /.react-router/
 /build/
+
+# PWABuilder-generated store packages (downloaded, not source)
+/store/android/
+/store/ios/

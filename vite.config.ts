@@ -18,18 +18,40 @@ export default defineConfig({
       // actively caching files would fight with Vite's HMR anyway.
       injectRegister: false,
       manifest: {
+        // Fixed app identity PWABuilder/TWA use to key store updates —
+        // changing this after publishing would look like a new app install.
+        id: "/events",
         name: "Terrible Football Liverpool",
         short_name: "Terrible FC",
         description: "Sign up for Terrible Football Liverpool games.",
         theme_color: "#f56772",
         background_color: "#f5f5f7",
         display: "standalone",
+        orientation: "portrait",
+        scope: "/",
         start_url: "/events",
+        categories: ["sports", "lifestyle"],
         icons: [
           { src: "pwa-64x64.png", sizes: "64x64", type: "image/png" },
           { src: "pwa-192x192.png", sizes: "192x192", type: "image/png" },
           { src: "pwa-512x512.png", sizes: "512x512", type: "image/png" },
           { src: "maskable-icon-512x512.png", sizes: "512x512", type: "image/png", purpose: "maskable" },
+        ],
+        screenshots: [
+          {
+            src: "screenshots/events-wide.jpg",
+            sizes: "1280x623",
+            type: "image/jpeg",
+            form_factor: "wide",
+            label: "Browse upcoming Saturday sessions",
+          },
+          {
+            src: "screenshots/events-narrow.jpg",
+            sizes: "500x755",
+            type: "image/jpeg",
+            form_factor: "narrow",
+            label: "Browse upcoming Saturday sessions",
+          },
         ],
       },
       workbox: {

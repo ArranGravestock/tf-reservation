@@ -10,7 +10,8 @@
     "seed:signups": "node scripts/seed-fake-signups.mjs",
     "mail:up": "docker compose up -d mailpit",
     "mail:down": "docker compose down",
-    "dev:mail": "SMTP_HOST=localhost SMTP_PORT=1025 react-router dev"
+    "dev:mail": "SMTP_HOST=localhost SMTP_PORT=1025 react-router dev",
+    "store:report": "open 'https://www.pwabuilder.com/reportcard?site=https://terriblefootball.net'"
   },
   "dependencies": {
     "@react-router/node": "7.12.0",
