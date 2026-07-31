@@ -692,7 +692,7 @@ export default function EventDetail() {
                 </div>
               </div>
               <p className="mt-4 pt-4 border-t border-[#25d366]/30 text-[13px] text-[#075e54]/80 dark:text-[#25d366]/80">
-                Due to a bot problem we now require your WhatsApp name to match your Meetup name. If they do not match you will not be accepted.
+                Due to a bot problem we now require your WhatsApp name to match your fullname. If they do not match you will not be accepted.
               </p>
             </div>
           </div>

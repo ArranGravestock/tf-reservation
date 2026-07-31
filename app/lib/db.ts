@@ -58,7 +58,45 @@ function createDb(): Database.Database {
       PRIMARY KEY (user_id, notice_id)
     );
     CREATE INDEX IF NOT EXISTS idx_notices_event ON notices(event_id);
+
+    CREATE TABLE IF NOT EXISTS organiser_conversations (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER NOT NULL UNIQUE REFERENCES users(id) ON DELETE CASCADE,
+      created_at INTEGER NOT NULL DEFAULT (unixepoch())
+    );
+    CREATE TABLE IF NOT EXISTS organiser_messages (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      conversation_id INTEGER NOT NULL REFERENCES organiser_conversations(id) ON DELETE CASCADE,
+      sender_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      message TEXT NOT NULL,
+      created_at INTEGER NOT NULL DEFAULT (unixepoch())
+    );
+    CREATE INDEX IF NOT EXISTS idx_organiser_messages_conversation ON organiser_messages(conversation_id);
   `);
+  // Migration: fold the older one-way `admin_messages` table (pre-conversations)
+  // into a conversation per sender, then drop it — it only ever shipped as a
+  // flat inbox, never released with the old shape as the source of truth.
+  const hasLegacyAdminMessages = db
+    .prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'admin_messages'")
+    .get();
+  if (hasLegacyAdminMessages) {
+    const legacyRows = db
+      .prepare("SELECT id, user_id, message, created_at FROM admin_messages ORDER BY created_at ASC")
+      .all() as { id: number; user_id: number; message: string; created_at: number }[];
+    const getOrCreateConvo = db.prepare(
+      "INSERT INTO organiser_conversations (user_id) VALUES (?) ON CONFLICT(user_id) DO NOTHING"
+    );
+    const findConvo = db.prepare("SELECT id FROM organiser_conversations WHERE user_id = ?");
+    const insertMsg = db.prepare(
+      "INSERT INTO organiser_messages (conversation_id, sender_id, message, created_at) VALUES (?, ?, ?, ?)"
+    );
+    for (const row of legacyRows) {
+      getOrCreateConvo.run(row.user_id);
+      const convo = findConvo.get(row.user_id) as { id: number };
+      insertMsg.run(convo.id, row.user_id, row.message, row.created_at);
+    }
+    db.exec("DROP TABLE admin_messages");
+  }
   // Migration: add profile_emoji if missing (existing DBs)
   let cols = db.prepare("PRAGMA table_info(users)").all() as { name: string }[];
   if (!cols.some((c) => c.name === "profile_emoji")) {
@@ -178,6 +216,12 @@ function createDb(): Database.Database {
     // Backfill: anyone currently verified has verified at least once.
     db.exec("UPDATE users SET ever_verified = 1 WHERE email_verified = 1");
   }
+  cols = db.prepare("PRAGMA table_info(users)").all() as { name: string }[];
+  if (!cols.some((c) => c.name === "message_banned")) {
+    // Admin-only marker: blocks the user from sending new organiser messages
+    // without affecting their event sign-ups.
+    db.exec("ALTER TABLE users ADD COLUMN message_banned INTEGER NOT NULL DEFAULT 0");
+  }
 
   // Enforce case-insensitive uniqueness for usernames and emails at the DB level
   // (the app also checks with LOWER(), but these indexes guard against races and
@@ -246,11 +290,21 @@ export type User = {
   last_name?: string | null;
   late_count?: number;
   blocked_until?: number | null;
+  message_banned?: number;
 };
 
 /** True while the user is serving a lateness block (blocked_until is in the future). */
 export function isUserBlocked(user: { blocked_until?: number | null }): boolean {
   return !!(user.blocked_until && user.blocked_until > Math.floor(Date.now() / 1000));
+}
+
+/** True if an admin has banned this user from sending organiser messages. */
+export function isMessageBanned(user: { message_banned?: number }): boolean {
+  return !!user.message_banned;
+}
+
+export function setUserMessageBanned(db: Database.Database, userId: number, banned: boolean): void {
+  db.prepare("UPDATE users SET message_banned = ? WHERE id = ?").run(banned ? 1 : 0, userId);
 }
 
 export type Event = {
@@ -603,6 +657,106 @@ export function getNoticesList(db: Database.Database): (Notice & { event_date: s
     )
     .all() as (Notice & { event_date: string; event_title: string | null })[];
   return rows;
+}
+
+export type OrganiserConversation = {
+  id: number;
+  user_id: number;
+  created_at: number;
+};
+
+export type OrganiserMessage = {
+  id: number;
+  conversation_id: number;
+  sender_id: number;
+  message: string;
+  created_at: number;
+};
+
+/** Get the member's single ongoing conversation with the organisers, creating it if needed. */
+export function getOrCreateConversation(db: Database.Database, userId: number): OrganiserConversation {
+  db.prepare(
+    "INSERT INTO organiser_conversations (user_id) VALUES (?) ON CONFLICT(user_id) DO NOTHING"
+  ).run(userId);
+  return db
+    .prepare("SELECT id, user_id, created_at FROM organiser_conversations WHERE user_id = ?")
+    .get(userId) as OrganiserConversation;
+}
+
+export function getConversationById(db: Database.Database, conversationId: number): OrganiserConversation | null {
+  const row = db
+    .prepare("SELECT id, user_id, created_at FROM organiser_conversations WHERE id = ?")
+    .get(conversationId) as OrganiserConversation | undefined;
+  return row ?? null;
+}
+
+export function addConversationMessage(
+  db: Database.Database,
+  opts: { conversationId: number; senderId: number; message: string }
+): OrganiserMessage {
+  const run = db
+    .prepare("INSERT INTO organiser_messages (conversation_id, sender_id, message) VALUES (?, ?, ?)")
+    .run(opts.conversationId, opts.senderId, opts.message.trim());
+  const row = db
+    .prepare("SELECT id, conversation_id, sender_id, message, created_at FROM organiser_messages WHERE id = ?")
+    .get(run.lastInsertRowid) as OrganiserMessage;
+  return row;
+}
+
+/** All messages in a conversation, oldest first, with sender info for rendering the thread. */
+export function getConversationMessages(
+  db: Database.Database,
+  conversationId: number
+): (OrganiserMessage & { username: string; is_admin: number; profile_emoji: string | null })[] {
+  return db
+    .prepare(
+      `SELECT m.id, m.conversation_id, m.sender_id, m.message, m.created_at, u.username, u.is_admin, u.profile_emoji
+       FROM organiser_messages m
+       JOIN users u ON u.id = m.sender_id
+       WHERE m.conversation_id = ?
+       ORDER BY m.created_at ASC`
+    )
+    .all(conversationId) as (OrganiserMessage & { username: string; is_admin: number; profile_emoji: string | null })[];
+}
+
+/** Every conversation with the starting member's info and a preview of the latest message (for the admin list). */
+export function getConversationsList(
+  db: Database.Database
+): {
+  id: number;
+  user_id: number;
+  username: string;
+  email: string;
+  message_banned: number;
+  last_message: string;
+  last_message_at: number;
+}[] {
+  return db
+    .prepare(
+      `SELECT c.id, c.user_id, u.username, u.email, u.message_banned, m.message as last_message, m.created_at as last_message_at
+       FROM organiser_conversations c
+       JOIN users u ON u.id = c.user_id
+       JOIN organiser_messages m ON m.id = (
+         SELECT id FROM organiser_messages WHERE conversation_id = c.id ORDER BY created_at DESC LIMIT 1
+       )
+       ORDER BY m.created_at DESC`
+    )
+    .all() as {
+    id: number;
+    user_id: number;
+    username: string;
+    email: string;
+    message_banned: number;
+    last_message: string;
+    last_message_at: number;
+  }[];
+}
+
+/** Everyone with admin access, for notifying them of a new message. */
+export function getAdminRecipients(db: Database.Database): { id: number; username: string; email: string }[] {
+  return db
+    .prepare("SELECT id, username, email FROM users WHERE is_admin = 1")
+    .all() as { id: number; username: string; email: string }[];
 }
 
 export const LATE_BLOCK_SECONDS = 7 * 24 * 60 * 60;

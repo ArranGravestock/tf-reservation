@@ -143,6 +143,40 @@ export async function sendVerificationEmail(to: string, verifyUrl: string, usern
   });
 }
 
+export async function sendAdminContactEmail(
+  to: string,
+  opts: { fromUsername: string; fromEmail: string; message: string; conversationUrl: string }
+): Promise<void> {
+  await sendMail({
+    to,
+    subject: `New message from ${opts.fromUsername} – Terrible Football Liverpool`,
+    text: `${opts.fromUsername} (${opts.fromEmail}) sent a message via the app:\n\n${opts.message}\n\nReply: ${opts.conversationUrl}`,
+    html: layout(
+      "New message from a member",
+      `<p style="font-size:15px;line-height:1.5;"><strong>${escapeHtml(opts.fromUsername)}</strong> (${escapeHtml(opts.fromEmail)}) sent this via the app:</p>
+       <p style="font-size:15px;line-height:1.5;white-space:pre-wrap;background:#f5f5f7;border-radius:12px;padding:16px;">${escapeHtml(opts.message)}</p>
+       <p style="margin:24px 0;">${button(opts.conversationUrl, "Reply")}</p>`
+    ),
+  });
+}
+
+export async function sendOrganiserReplyEmail(
+  to: string,
+  opts: { replierUsername: string; message: string; conversationUrl: string }
+): Promise<void> {
+  await sendMail({
+    to,
+    subject: `${opts.replierUsername} replied – Terrible Football Liverpool`,
+    text: `${opts.replierUsername} replied to your message:\n\n${opts.message}\n\nView the conversation: ${opts.conversationUrl}`,
+    html: layout(
+      "New reply from the organisers",
+      `<p style="font-size:15px;line-height:1.5;"><strong>${escapeHtml(opts.replierUsername)}</strong> replied to your message:</p>
+       <p style="font-size:15px;line-height:1.5;white-space:pre-wrap;background:#f5f5f7;border-radius:12px;padding:16px;">${escapeHtml(opts.message)}</p>
+       <p style="margin:24px 0;">${button(opts.conversationUrl, "View conversation")}</p>`
+    ),
+  });
+}
+
 export async function sendPasswordResetEmail(to: string, resetUrl: string): Promise<void> {
   await sendMail({
     to,

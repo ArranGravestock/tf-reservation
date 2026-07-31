@@ -146,11 +146,19 @@ export default function App() {
                     <Link to="/notices" className={linkClass}>
                       Notices
                     </Link>
+                    <Link to="/admin/messages" className={linkClass}>
+                      Messages
+                    </Link>
                   </>
                 )}
                 <Link to="/faq" className={linkClass}>
                   FAQ
                 </Link>
+                {!user.isAdmin && (
+                  <Link to="/contact" className={linkClass}>
+                    Contact
+                  </Link>
+                )}
               </div>
             </div>
 
@@ -211,11 +219,19 @@ export default function App() {
                     <Link to="/notices" className={mobileLinkClass} onClick={() => setMobileOpen(false)}>
                       Notices
                     </Link>
+                    <Link to="/admin/messages" className={mobileLinkClass} onClick={() => setMobileOpen(false)}>
+                      Messages
+                    </Link>
                   </>
                 )}
                 <Link to="/faq" className={mobileLinkClass} onClick={() => setMobileOpen(false)}>
                   FAQ
                 </Link>
+                {!user.isAdmin && (
+                  <Link to="/contact" className={mobileLinkClass} onClick={() => setMobileOpen(false)}>
+                    Contact
+                  </Link>
+                )}
                 <Link to="/settings" className={mobileLinkClass} onClick={() => setMobileOpen(false)}>
                   Settings
                 </Link>
