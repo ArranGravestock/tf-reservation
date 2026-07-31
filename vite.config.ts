@@ -28,9 +28,25 @@ export default defineConfig({
         background_color: "#f5f5f7",
         display: "standalone",
         orientation: "portrait",
+        dir: "ltr",
         scope: "/",
         start_url: "/events",
         categories: ["sports", "lifestyle"],
+        launch_handler: {
+          client_mode: "focus-existing",
+        },
+        shortcuts: [
+          {
+            name: "Events",
+            url: "/events",
+            icons: [{ src: "pwa-192x192.png", sizes: "192x192", type: "image/png" }],
+          },
+          {
+            name: "FAQ",
+            url: "/faq",
+            icons: [{ src: "pwa-192x192.png", sizes: "192x192", type: "image/png" }],
+          },
+        ],
         icons: [
           { src: "pwa-64x64.png", sizes: "64x64", type: "image/png" },
           { src: "pwa-192x192.png", sizes: "192x192", type: "image/png" },
