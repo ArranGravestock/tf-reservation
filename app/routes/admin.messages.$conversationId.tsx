@@ -122,7 +122,7 @@ export default function AdminMessageThread() {
   }, [revalidator]);
 
   return (
-    <main className="h-[calc(100dvh-3.5rem)] bg-[#f5f5f7] dark:bg-[#1c1c1e] p-6 flex flex-col overflow-hidden">
+    <main className="h-[calc(100dvh-3.5rem-3rem-1px)] bg-[#f5f5f7] dark:bg-[#1c1c1e] p-6 flex flex-col overflow-hidden">
       <div className="max-w-2xl mx-auto w-full flex flex-col flex-1 min-h-0">
         <div className="shrink-0">
           <Link to="/admin/messages" className="text-[15px] text-[#f56772] hover:opacity-80 mb-6 inline-block">

@@ -141,13 +141,10 @@ export default function App() {
                 {user.isAdmin && (
                   <>
                     <Link to="/admin/users" className={linkClass}>
-                      Users
+                      Admin
                     </Link>
                     <Link to="/notices" className={linkClass}>
                       Notices
-                    </Link>
-                    <Link to="/admin/messages" className={linkClass}>
-                      Messages
                     </Link>
                   </>
                 )}
@@ -214,13 +211,10 @@ export default function App() {
                 {user.isAdmin && (
                   <>
                     <Link to="/admin/users" className={mobileLinkClass} onClick={() => setMobileOpen(false)}>
-                      Users
+                      Admin
                     </Link>
                     <Link to="/notices" className={mobileLinkClass} onClick={() => setMobileOpen(false)}>
                       Notices
-                    </Link>
-                    <Link to="/admin/messages" className={mobileLinkClass} onClick={() => setMobileOpen(false)}>
-                      Messages
                     </Link>
                   </>
                 )}

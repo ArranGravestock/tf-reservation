@@ -295,7 +295,7 @@ export default function AdminUsers() {
   }, [page, totalPages, searchParams, setSearchParams]);
 
   return (
-    <main className="h-[calc(100vh-3.5rem-1px)] flex flex-col overflow-hidden bg-[#f5f5f7] dark:bg-[#1c1c1e]">
+    <main className="h-[calc(100vh-3.5rem-3rem-2px)] flex flex-col overflow-hidden bg-[#f5f5f7] dark:bg-[#1c1c1e]">
       <div className="flex-1 flex flex-col min-h-0 max-w-2xl lg:max-w-5xl w-full mx-auto p-6 overflow-hidden">
         <div className="shrink-0 mb-4">
           <Link to="/events" className="text-[15px] text-[#f56772] hover:opacity-80 inline-block">
