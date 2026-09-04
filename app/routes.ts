@@ -19,6 +19,7 @@ export default [
     route("users", "routes/admin.users.tsx"),
     route("messages", "routes/admin.messages.tsx"),
     route("messages/:conversationId", "routes/admin.messages.$conversationId.tsx"),
+    route("configuration", "routes/admin.configuration.tsx"),
   ]),
   route("contact", "routes/contact.tsx"),
   route("notices", "routes/notices.tsx"),

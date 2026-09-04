@@ -26,6 +26,12 @@ export default function AdminLayout() {
           <Link to="/admin/messages" className={tabClass(location.pathname.startsWith("/admin/messages"))}>
             Messages
           </Link>
+          <Link
+            to="/admin/configuration"
+            className={tabClass(location.pathname.startsWith("/admin/configuration"))}
+          >
+            Configuration
+          </Link>
         </div>
       </div>
       <Outlet />

@@ -72,6 +72,11 @@ function createDb(): Database.Database {
       created_at INTEGER NOT NULL DEFAULT (unixepoch())
     );
     CREATE INDEX IF NOT EXISTS idx_organiser_messages_conversation ON organiser_messages(conversation_id);
+
+    CREATE TABLE IF NOT EXISTS app_settings (
+      key TEXT PRIMARY KEY,
+      value TEXT NOT NULL
+    );
   `);
   // Migration: fold the older one-way `admin_messages` table (pre-conversations)
   // into a conversation per sender, then drop it — it only ever shipped as a
@@ -485,9 +490,84 @@ export function initDb(): Database.Database {
 // Weekdays that have recurring events, with their default start time.
 // day: 0=Sun … 6=Sat. cutoff is the time after which "today" rolls to next week.
 const RECURRING_EVENT_DAYS = [
-  { day: 6, time: null as string | null, cutoffHour: 12, cutoffMinute: 0 }, // Saturday, 10:30am default
-  { day: 3, time: "6:20pm", cutoffHour: 18, cutoffMinute: 20 }, // Wednesday, 6:20pm
+  { day: 6, time: null as string | null, cutoffHour: 12, cutoffMinute: 0, label: "saturday" as const }, // Saturday, 10:30am default
+  { day: 3, time: "6:20pm", cutoffHour: 18, cutoffMinute: 20, label: "wednesday" as const }, // Wednesday, 6:20pm
 ];
+
+// Every day of the week, for the admin configuration UI. Only Saturday and
+// Wednesday (above) actually have a schedule wired up to generate events —
+// the rest exist so the toggle is future-ready, but flipping them on is a
+// no-op today since there's no default time/cutoff configured for them.
+export const ALL_WEEKDAYS = [
+  { day: 1, label: "monday" as const, name: "Monday" },
+  { day: 2, label: "tuesday" as const, name: "Tuesday" },
+  { day: 3, label: "wednesday" as const, name: "Wednesday" },
+  { day: 4, label: "thursday" as const, name: "Thursday" },
+  { day: 5, label: "friday" as const, name: "Friday" },
+  { day: 6, label: "saturday" as const, name: "Saturday" },
+  { day: 0, label: "sunday" as const, name: "Sunday" },
+];
+
+export type RecurringDay = (typeof ALL_WEEKDAYS)[number]["label"];
+
+const FUNCTIONAL_RECURRING_DAYS: RecurringDay[] = RECURRING_EVENT_DAYS.map((cfg) => cfg.label);
+
+export type AutoCreateSetting = { enabled: boolean; pausedFrom: string | null };
+
+/** Auto-creation defaults to on for Saturday/Wednesday, off for every other day. */
+function defaultAutoCreateEnabled(day: RecurringDay): boolean {
+  return FUNCTIONAL_RECURRING_DAYS.includes(day);
+}
+
+function getAutoCreatePausedFrom(db: Database.Database, day: RecurringDay): string | null {
+  const row = db.prepare("SELECT value FROM app_settings WHERE key = ?").get(`auto_create_${day}_from`) as
+    | { value: string }
+    | undefined;
+  return row?.value ?? null;
+}
+
+/** Whether auto-creation of upcoming events is enabled for the given recurring day. */
+export function isAutoCreateEnabled(db: Database.Database, day: RecurringDay): boolean {
+  const row = db.prepare("SELECT value FROM app_settings WHERE key = ?").get(`auto_create_${day}`) as
+    | { value: string }
+    | undefined;
+  return row ? row.value === "1" : defaultAutoCreateEnabled(day);
+}
+
+export function getAutoCreateSettings(db: Database.Database): Record<RecurringDay, AutoCreateSetting> {
+  return Object.fromEntries(
+    ALL_WEEKDAYS.map((cfg) => [
+      cfg.label,
+      { enabled: isAutoCreateEnabled(db, cfg.label), pausedFrom: getAutoCreatePausedFrom(db, cfg.label) },
+    ])
+  ) as Record<RecurringDay, AutoCreateSetting>;
+}
+
+/**
+ * Enable/disable auto-creation for a recurring day from a given date onwards.
+ * Disabling also deletes any already-created (non-custom) events for that
+ * weekday on or after `fromDate`, since they're no longer wanted.
+ */
+export function setAutoCreateConfig(
+  db: Database.Database,
+  day: RecurringDay,
+  enabled: boolean,
+  fromDate: string
+) {
+  const setSetting = db.prepare(
+    "INSERT INTO app_settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value"
+  );
+  setSetting.run(`auto_create_${day}`, enabled ? "1" : "0");
+  if (enabled) {
+    db.prepare("DELETE FROM app_settings WHERE key = ?").run(`auto_create_${day}_from`);
+  } else {
+    setSetting.run(`auto_create_${day}_from`, fromDate);
+    const weekday = ALL_WEEKDAYS.find((cfg) => cfg.label === day)!.day;
+    db.prepare(
+      "DELETE FROM events WHERE custom = 0 AND event_date >= ? AND CAST(strftime('%w', event_date) AS INTEGER) = ?"
+    ).run(fromDate, weekday);
+  }
+}
 
 /** Upcoming dates (YYYY-MM-DD) for a given weekday, skipping today if past the cutoff. */
 function getNextWeekdayDates(
@@ -529,8 +609,11 @@ export function ensureRecurringEvents(db: Database.Database, count = 12) {
   const withTime = db.prepare("INSERT INTO events (event_date, time) VALUES (?, ?)");
   const withoutTime = db.prepare("INSERT INTO events (event_date) VALUES (?)");
   for (const cfg of RECURRING_EVENT_DAYS) {
+    const enabled = isAutoCreateEnabled(db, cfg.label);
+    const pausedFrom = enabled ? null : getAutoCreatePausedFrom(db, cfg.label);
     const dates = getNextWeekdayDates(count, cfg.day, cfg.cutoffHour, cfg.cutoffMinute);
     for (const date of dates) {
+      if (!enabled && (pausedFrom === null || date >= pausedFrom)) continue;
       if (existing.get(date)) continue;
       if (cfg.time) withTime.run(date, cfg.time);
       else withoutTime.run(date);
