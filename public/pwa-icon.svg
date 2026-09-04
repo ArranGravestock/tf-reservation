@@ -1,12 +1,13 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
   <rect width="512" height="512" rx="96" fill="#f56772" />
-  <text
-    x="256"
-    y="326"
-    text-anchor="middle"
-    font-family="Arial, Helvetica, sans-serif"
-    font-weight="700"
-    font-size="240"
-    fill="#ffffff"
-  >TF</text>
+  <circle cx="256" cy="256" r="176" fill="#ffffff" />
+  <g stroke="#1c1c1e" stroke-width="10" stroke-linejoin="round" fill="#1c1c1e">
+    <polygon points="256,180 300,212 284,264 228,264 212,212" />
+    <polygon points="256,180 300,212 340,182 320,132 256,120" fill="none" stroke-width="9" />
+    <polygon points="256,180 212,212 172,182 192,132 256,120" fill="none" stroke-width="9" />
+    <polygon points="228,264 284,264 300,314 256,348 212,314" fill="none" stroke-width="9" />
+    <polygon points="300,212 340,182 388,204 372,258 340,270 284,264" fill="none" stroke-width="9" />
+    <polygon points="212,212 172,182 124,204 140,258 172,270 228,264" fill="none" stroke-width="9" />
+  </g>
+  <circle cx="256" cy="256" r="176" fill="none" stroke="#1c1c1e" stroke-width="10" />
 </svg>
