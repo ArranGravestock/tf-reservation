@@ -608,8 +608,66 @@ export default function EventDetail() {
               <li>Everyone is welcome — every skill level, gender, sexuality. Just gotta be over 18!</li>
               <li>No one gets upset if we miss a pass… or the ball altogether. Skills vary from old semi-pro players to never kicked a ball. We weren&apos;t fibbing when we said inclusive.</li>
               <li>Hosted at the southern side of Wavertree Botanic Gardens</li>
-              <li>Follow us on <a href="https://www.facebook.com/TerribleFC." target="_blank" rel="noopener noreferrer" className="text-[#f56772] hover:underline">Facebook</a> and <a href="https://www.instagram.com/terrible_football/?hl=en" target="_blank" rel="noopener noreferrer" className="text-[#f56772] hover:underline">Instagram</a> — tons of info on there!</li>
+              <li>Follow us on social media — tons of info on there!</li>
             </ul>
+            <div className="flex flex-wrap items-center gap-2.5 mt-4">
+              <a
+                href="https://www.facebook.com/TerribleFC."
+                target="_blank"
+                rel="noopener noreferrer"
+                title="Facebook"
+                className="inline-flex items-center gap-2 pl-1.5 pr-3.5 py-1.5 rounded-full bg-white dark:bg-neutral-800 border border-neutral-200/80 dark:border-neutral-700/60 shadow-sm hover:shadow-md hover:-translate-y-0.5 transition-all"
+              >
+                <svg viewBox="0 0 24 24" className="h-7 w-7 shrink-0" aria-hidden>
+                  <path
+                    fill="#1877F2"
+                    d="M24 12.07C24 5.4 18.63 0 12 0S0 5.4 0 12.07c0 6.02 4.39 11.01 10.13 11.93v-8.44H7.08v-3.49h3.05V9.41c0-3.02 1.79-4.69 4.53-4.69 1.31 0 2.68.24 2.68.24v2.96h-1.51c-1.49 0-1.95.93-1.95 1.89v2.26h3.32l-.53 3.49h-2.79v8.44C19.61 23.08 24 18.09 24 12.07Z"
+                  />
+                </svg>
+                <span className="text-[14px] font-medium text-neutral-700 dark:text-neutral-200">
+                  TerribleFC
+                </span>
+              </a>
+              <a
+                href="https://www.instagram.com/terriblefootballliverpool/"
+                target="_blank"
+                rel="noopener noreferrer"
+                title="Instagram"
+                className="inline-flex items-center gap-2 pl-1.5 pr-3.5 py-1.5 rounded-full bg-white dark:bg-neutral-800 border border-neutral-200/80 dark:border-neutral-700/60 shadow-sm hover:shadow-md hover:-translate-y-0.5 transition-all"
+              >
+                <svg viewBox="0 0 24 24" className="h-7 w-7 shrink-0" aria-hidden>
+                  <defs>
+                    <linearGradient id="ig-gradient" x1="0%" y1="100%" x2="100%" y2="0%">
+                      <stop offset="0%" stopColor="#FFDD55" />
+                      <stop offset="30%" stopColor="#FF543E" />
+                      <stop offset="65%" stopColor="#C837AB" />
+                      <stop offset="100%" stopColor="#5F5FEE" />
+                    </linearGradient>
+                  </defs>
+                  <rect x="1.5" y="1.5" width="21" height="21" rx="6" fill="url(#ig-gradient)" />
+                  <circle cx="12" cy="12" r="5" fill="none" stroke="#fff" strokeWidth="1.8" />
+                  <circle cx="17.4" cy="6.6" r="1.15" fill="#fff" />
+                </svg>
+                <span className="text-[14px] font-medium text-neutral-700 dark:text-neutral-200">
+                  @terriblefootballliverpool
+                </span>
+              </a>
+              <a
+                href="https://www.youtube.com/@TerribleFootballLiverpool"
+                target="_blank"
+                rel="noopener noreferrer"
+                title="YouTube"
+                className="inline-flex items-center gap-2 pl-1.5 pr-3.5 py-1.5 rounded-full bg-white dark:bg-neutral-800 border border-neutral-200/80 dark:border-neutral-700/60 shadow-sm hover:shadow-md hover:-translate-y-0.5 transition-all"
+              >
+                <svg viewBox="0 0 24 24" className="h-7 w-7 shrink-0" aria-hidden>
+                  <rect x="1" y="4.5" width="22" height="15" rx="4.5" fill="#FF0000" />
+                  <path d="M10 8.6 16 12l-6 3.4z" fill="#fff" />
+                </svg>
+                <span className="text-[14px] font-medium text-neutral-700 dark:text-neutral-200">
+                  @TerribleFootballLiverpool
+                </span>
+              </a>
+            </div>
           </div>
 
           <div>
