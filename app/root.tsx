@@ -17,6 +17,12 @@ import { getUser } from "~/lib/auth.server";
 import { getDb, getNoticesForUser, getLateWarningForUser } from "~/lib/db.server";
 import "./app.css";
 
+// Not yet in lib.dom.d.ts.
+interface BeforeInstallPromptEvent extends Event {
+  prompt: () => Promise<void>;
+  userChoice: Promise<{ outcome: "accepted" | "dismissed"; platform: string }>;
+}
+
 export const links: Route.LinksFunction = () => [
   { rel: "manifest", href: "/manifest.webmanifest" },
   { rel: "icon", href: "/favicon.ico", sizes: "48x48" },
@@ -103,6 +109,42 @@ export default function App() {
       .catch(() => {});
   }, []);
 
+  // Capture the browser's install prompt so we can trigger it from our own
+  // button instead of waiting for the browser's default UI. Not available on
+  // iOS Safari (no beforeinstallprompt) or once already installed.
+  const [installPrompt, setInstallPrompt] = useState<BeforeInstallPromptEvent | null>(null);
+  useEffect(() => {
+    function onBeforeInstallPrompt(e: Event) {
+      e.preventDefault();
+      setInstallPrompt(e as BeforeInstallPromptEvent);
+    }
+    function onInstalled() {
+      setInstallPrompt(null);
+    }
+    window.addEventListener("beforeinstallprompt", onBeforeInstallPrompt);
+    window.addEventListener("appinstalled", onInstalled);
+    return () => {
+      window.removeEventListener("beforeinstallprompt", onBeforeInstallPrompt);
+      window.removeEventListener("appinstalled", onInstalled);
+    };
+  }, []);
+
+  // Always show the button in dev, even without a real prompt to trigger —
+  // beforeinstallprompt is finicky to get Chrome to fire locally, and this
+  // lets the button itself be seen/styled without chasing that.
+  const showInstallButton = !!installPrompt || import.meta.env.DEV;
+
+  async function handleInstallClick() {
+    if (!installPrompt) {
+      if (import.meta.env.DEV) alert("No real install prompt in dev — this button is only visible for styling.");
+      return;
+    }
+    await installPrompt.prompt();
+    await installPrompt.userChoice;
+    // The prompt can only be used once.
+    setInstallPrompt(null);
+  }
+
   // Don't let the page scroll behind the late-warning modal.
   useEffect(() => {
     if (!lateWarning) return;
@@ -161,6 +203,18 @@ export default function App() {
 
             {/* Desktop account group */}
             <div className="hidden lg:flex items-center gap-6 min-w-0">
+              {showInstallButton && (
+                <button
+                  type="button"
+                  onClick={handleInstallClick}
+                  className="inline-flex items-center gap-1.5 rounded-lg bg-[length:200%_100%] bg-left bg-gradient-to-r from-[#7a1620] via-[#f56772] to-[#7a1620] px-3.5 py-1.5 text-[13px] font-semibold text-white shadow-sm hover:bg-right hover:scale-105 active:scale-95 transition-all duration-500"
+                >
+                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2} aria-hidden>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M12 3v12m0 0 4-4m-4 4-4-4M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2" />
+                  </svg>
+                  Install app
+                </button>
+              )}
               <Link to="/settings" className={linkClass}>
                 Settings
               </Link>
@@ -229,6 +283,21 @@ export default function App() {
                 <Link to="/settings" className={mobileLinkClass} onClick={() => setMobileOpen(false)}>
                   Settings
                 </Link>
+                {showInstallButton && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setMobileOpen(false);
+                      handleInstallClick();
+                    }}
+                    className="my-2 inline-flex w-full items-center justify-center gap-1.5 rounded-lg bg-[length:200%_100%] bg-left bg-gradient-to-r from-[#7a1620] via-[#f56772] to-[#7a1620] px-4 py-2.5 text-[15px] font-semibold text-white hover:bg-right active:scale-[0.98] transition-all duration-500"
+                  >
+                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2} aria-hidden>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M12 3v12m0 0 4-4m-4 4-4-4M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2" />
+                    </svg>
+                    Install app
+                  </button>
+                )}
                 <div className="flex items-center justify-between py-3">
                   <span className="flex items-center gap-2 text-[15px] text-neutral-500 dark:text-neutral-400 min-w-0">
                     {user.profileEmoji && (

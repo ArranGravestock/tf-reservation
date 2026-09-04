@@ -4,7 +4,7 @@ import { defineConfig } from "vite";
 import tsconfigPaths from "vite-tsconfig-paths";
 import { VitePWA } from "vite-plugin-pwa";
 
-export default defineConfig({
+export default defineConfig(({ command }) => ({
   plugins: [
     tailwindcss(),
     reactRouter(),
@@ -13,10 +13,16 @@ export default defineConfig({
       registerType: "autoUpdate",
       // No index.html for this SSR framework to inject a registration script
       // into — the service worker is registered manually from app/root.tsx.
-      // PWA support (manifest + service worker) is production-build only —
-      // the dev server has no built assets to precache, and a service worker
-      // actively caching files would fight with Vite's HMR anyway.
       injectRegister: false,
+      // Serve a (non-precaching) service worker + manifest in dev too, purely
+      // so the browser considers the app installable and fires
+      // beforeinstallprompt — lets the nav's install button be tested locally
+      // without a production build. It doesn't precache anything, so it
+      // won't fight with Vite's HMR.
+      devOptions: {
+        enabled: true,
+        type: "module",
+      },
       manifest: {
         // Fixed app identity PWABuilder/TWA use to key store updates —
         // changing this after publishing would look like a new app install.
@@ -70,13 +76,24 @@ export default defineConfig({
           },
         ],
       },
-      workbox: {
-        // This is a server-rendered app with per-request auth and live data
-        // (sign-ups, blocking, admin state) — don't precache or offline-serve
-        // HTML navigations or data requests, only the static build assets.
-        navigateFallback: undefined,
-        globPatterns: ["**/*.{js,css,woff2}"],
-      },
+      workbox:
+        command === "build"
+          ? {
+              // This is a server-rendered app with per-request auth and live
+              // data (sign-ups, blocking, admin state) — don't precache or
+              // offline-serve HTML navigations or data requests, only the
+              // static build assets.
+              navigateFallback: undefined,
+              globPatterns: ["**/*.{js,css,woff2}"],
+            }
+          : {
+              // Dev has no build output to precache — workbox-build still
+              // requires *some* precache or runtime-caching config to exist,
+              // so give it a runtime-caching entry that never actually
+              // matches anything.
+              navigateFallback: undefined,
+              runtimeCaching: [{ urlPattern: () => false, handler: "NetworkOnly" }],
+            },
     }),
   ],
-});
+}));
