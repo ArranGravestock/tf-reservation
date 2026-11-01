@@ -5,7 +5,7 @@ const PAGE_SIZE_OPTIONS = [10, 20, 50, 100] as const;
 const DEFAULT_PAGE_SIZE = 20;
 import type { Route } from "./+types/admin.users";
 import { createVerificationToken, requireAdmin, requireSuperAdmin, isSuperAdmin } from "~/lib/auth.server";
-import { getDb, createDirectNotice, isUserBlocked, isEventEnded, LATE_BLOCK_SECONDS } from "~/lib/db.server";
+import { getDb, createDirectNotice, deleteUserAccount, isUserBlocked, isEventEnded, LATE_BLOCK_SECONDS } from "~/lib/db.server";
 import { isEmailConfigured, sendVerificationEmail } from "~/lib/email.server";
 
 export function meta({}: Route.MetaArgs) {
@@ -47,6 +47,29 @@ export async function action({ request }: Route.ActionArgs) {
   const formData = await request.formData();
   const intent = formData.get("intent");
   const db = getDb();
+
+  if (intent === "delete-users") {
+    if (formData.get("confirm") !== "DELETE") return { deleteError: "Type DELETE to confirm." };
+    const userIds = formData
+      .getAll("userId")
+      .map((id) => parseInt(String(id), 10))
+      .filter((n) => !Number.isNaN(n));
+    const canDeleteAdmins = isSuperAdmin(currentUser);
+    const lookup = db.prepare("SELECT id, is_admin, is_super_admin FROM users WHERE id = ?");
+    let deleted = 0;
+    let skipped = 0;
+    for (const id of userIds) {
+      const target = lookup.get(id) as { id: number; is_admin: number; is_super_admin: number } | undefined;
+      // Never yourself or a super admin; other admins only by a super admin.
+      if (!target || target.id === currentUser.id || target.is_super_admin || (target.is_admin && !canDeleteAdmins)) {
+        skipped++;
+        continue;
+      }
+      deleteUserAccount(db, target.id);
+      deleted++;
+    }
+    return { deleted, skipped };
+  }
 
   if (intent === "send-notification") {
     const message = formData.get("message");
@@ -196,8 +219,11 @@ export default function AdminUsers() {
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
   const [showResendToast, setShowResendToast] = useState(false);
   const [notifyModalOpen, setNotifyModalOpen] = useState(false);
-  const [notifyToast, setNotifyToast] = useState<string | null>(null);
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
   const notifyFetcher = useFetcher<typeof action>();
+  const [deleteModalOpen, setDeleteModalOpen] = useState(false);
+  const [deleteConfirmText, setDeleteConfirmText] = useState("");
+  const deleteFetcher = useFetcher<typeof action>();
 
   useEffect(() => {
     setSelectedIds(new Set());
@@ -207,6 +233,20 @@ export default function AdminUsers() {
     if (actionData?.resendOk) setShowResendToast(true);
   }, [actionData?.resendOk]);
 
+  useEffect(() => {
+    const data = deleteFetcher.data;
+    if (deleteFetcher.state !== "idle" || !data || !("deleted" in data)) return;
+    setDeleteModalOpen(false);
+    setDeleteConfirmText("");
+    setSelectedIds(new Set());
+    const deleted = data.deleted ?? 0;
+    setToastMessage(
+      `Deleted ${deleted} ${deleted === 1 ? "user" : "users"}.` + (data.skipped ? ` ${data.skipped} skipped.` : "")
+    );
+    const t = setTimeout(() => setToastMessage(null), 4000);
+    return () => clearTimeout(t);
+  }, [deleteFetcher.state, deleteFetcher.data]);
+
   // Close the modal and confirm once a notification has been sent.
   useEffect(() => {
     const data = notifyFetcher.data;
@@ -214,8 +254,8 @@ export default function AdminUsers() {
     const sent = data.notifySent ?? 0;
     setNotifyModalOpen(false);
     setSelectedIds(new Set());
-    setNotifyToast(`Notification sent to ${sent} ${sent === 1 ? "user" : "users"}.`);
-    const t = setTimeout(() => setNotifyToast(null), 4000);
+    setToastMessage(`Notification sent to ${sent} ${sent === 1 ? "user" : "users"}.`);
+    const t = setTimeout(() => setToastMessage(null), 4000);
     return () => clearTimeout(t);
   }, [notifyFetcher.state, notifyFetcher.data]);
 
@@ -278,6 +318,15 @@ export default function AdminUsers() {
   const selectedNonBlocked = useMemo(
     () => selectedInPage.filter((u) => !u.blocked && u.id !== currentUserId),
     [selectedInPage, currentUserId]
+  );
+  // Who the current admin may delete: never themselves or a super admin;
+  // other admins only if they're a super admin (mirrored on the server).
+  const selectedDeletable = useMemo(
+    () =>
+      selectedInPage.filter(
+        (u) => u.id !== currentUserId && !u.is_super_admin && (!u.is_admin || currentUserIsSuperAdmin)
+      ),
+    [selectedInPage, currentUserId, currentUserIsSuperAdmin]
   );
   const selectedBlocked = useMemo(
     () => selectedInPage.filter((u) => u.blocked),
@@ -640,6 +689,18 @@ export default function AdminUsers() {
                     </button>
                   </Form>
                 )}
+                {selectedDeletable.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setDeleteConfirmText("");
+                      setDeleteModalOpen(true);
+                    }}
+                    className="rounded-lg bg-red-500/10 px-3 py-1.5 text-[13px] font-medium text-red-600 dark:text-red-400 hover:bg-red-500/20 transition-colors"
+                  >
+                    Delete permanently ({selectedDeletable.length})
+                  </button>
+                )}
               </div>
             </div>
           )}
@@ -776,16 +837,89 @@ export default function AdminUsers() {
         </div>
       )}
 
-      {notifyToast && (
+      {deleteModalOpen && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50"
+          onClick={() => setDeleteModalOpen(false)}
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="delete-users-modal-title"
+        >
+          <div
+            className="bg-white dark:bg-neutral-800 rounded-3xl shadow-xl max-w-md w-full p-6 border border-neutral-200/80 dark:border-neutral-700/60"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h3 id="delete-users-modal-title" className="text-[17px] font-semibold text-neutral-900 dark:text-white mb-2">
+              Permanently delete {selectedDeletable.length} {selectedDeletable.length === 1 ? "user" : "users"}?
+            </h3>
+            <p className="text-[15px] text-neutral-600 dark:text-neutral-300 mb-3">
+              This removes their account, sign-ups, hosting and messages. It can&apos;t be undone.
+            </p>
+            <ul className="mb-3 max-h-32 overflow-y-auto rounded-xl bg-neutral-100 dark:bg-neutral-700/50 px-3 py-2 text-[14px] text-neutral-800 dark:text-neutral-200">
+              {selectedDeletable.map((u) => (
+                <li key={u.id} className="truncate">
+                  {displayName(u)} <span className="text-neutral-500 dark:text-neutral-400">@{u.username}</span>
+                </li>
+              ))}
+            </ul>
+            {selectedIds.size > selectedDeletable.length && (
+              <p className="text-[13px] text-amber-700 dark:text-amber-400 mb-3">
+                {selectedIds.size - selectedDeletable.length} selected{" "}
+                {selectedIds.size - selectedDeletable.length === 1 ? "user" : "users"} can&apos;t be deleted by you (yourself,
+                super admins, or admins) and will be skipped.
+              </p>
+            )}
+            <deleteFetcher.Form method="post">
+              <input type="hidden" name="intent" value="delete-users" />
+              {selectedDeletable.map((u) => (
+                <input key={u.id} type="hidden" name="userId" value={u.id} />
+              ))}
+              <label htmlFor="delete-confirm" className="block text-[13px] font-medium text-neutral-600 dark:text-neutral-400 mb-1.5">
+                Type <span className="font-semibold text-neutral-900 dark:text-white">DELETE</span> to confirm
+              </label>
+              <input
+                id="delete-confirm"
+                name="confirm"
+                value={deleteConfirmText}
+                onChange={(e) => setDeleteConfirmText(e.target.value)}
+                autoComplete="off"
+                autoFocus
+                className="w-full rounded-xl border border-neutral-300 dark:border-neutral-600 bg-white dark:bg-neutral-900/60 px-3.5 py-2.5 text-[15px] text-neutral-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-red-500 mb-2"
+              />
+              {deleteFetcher.data && "deleteError" in deleteFetcher.data && (
+                <p className="text-[14px] text-red-600 dark:text-red-400 mb-2">{deleteFetcher.data.deleteError}</p>
+              )}
+              <div className="flex gap-2 mt-2">
+                <button
+                  type="button"
+                  onClick={() => setDeleteModalOpen(false)}
+                  className="flex-1 rounded-xl border border-neutral-300 dark:border-neutral-600 px-4 py-2.5 text-[15px] font-medium text-neutral-700 dark:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-700/50 transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={deleteConfirmText !== "DELETE" || deleteFetcher.state !== "idle"}
+                  className="flex-1 rounded-xl bg-red-600 px-4 py-2.5 text-[15px] font-medium text-white hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                >
+                  {deleteFetcher.state !== "idle" ? "Deleting…" : "Delete permanently"}
+                </button>
+              </div>
+            </deleteFetcher.Form>
+          </div>
+        </div>
+      )}
+
+      {toastMessage && (
         <div
           className="fixed top-20 left-1/2 -translate-x-1/2 z-50 w-full max-w-md max-w-[calc(100vw-2rem)] rounded-2xl bg-neutral-700 dark:bg-neutral-600 text-white px-4 py-3 shadow-lg border border-neutral-600 dark:border-neutral-500 flex items-center justify-between gap-3"
           role="status"
           aria-live="polite"
         >
-          <p className="text-[15px] font-medium">{notifyToast}</p>
+          <p className="text-[15px] font-medium">{toastMessage}</p>
           <button
             type="button"
-            onClick={() => setNotifyToast(null)}
+            onClick={() => setToastMessage(null)}
             className="shrink-0 rounded-lg p-1.5 bg-white/20 hover:bg-white/30 text-white transition-colors"
             aria-label="Dismiss"
           >
