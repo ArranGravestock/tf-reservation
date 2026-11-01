@@ -15,6 +15,21 @@ const TIME = "10:30am";
 
 type EventWithSignups = Event & { signup_count: number };
 
+/** Group events by month (YYYY-MM), keeping the input order of events and months. */
+function groupByMonth(events: EventWithSignups[]) {
+  const byMonth = new Map<string, EventWithSignups[]>();
+  for (const e of events) {
+    const monthKey = e.event_date.slice(0, 7);
+    if (!byMonth.has(monthKey)) byMonth.set(monthKey, []);
+    byMonth.get(monthKey)!.push(e);
+  }
+  return [...byMonth.entries()].map(([monthKey, monthEvents]) => ({
+    monthKey,
+    monthLabel: new Date(monthKey + "-01T12:00:00").toLocaleDateString("en-GB", { month: "long", year: "numeric" }),
+    events: monthEvents,
+  }));
+}
+
 export async function loader({ request }: { request: Request }) {
   const user = await requireVerifiedUser(request);
   const db = getDb();
@@ -28,30 +43,16 @@ export async function loader({ request }: { request: Request }) {
      GROUP BY e.id
      ORDER BY e.event_date ASC`
   ).all() as (Event & { signup_count: number | string })[];
-  const events: EventWithSignups[] = rows
-    .map((r) => ({
-      ...r,
-      signup_count: Number(r.signup_count),
-    }))
-    .filter((e) => !isEventEnded(e));
+  const allEvents: EventWithSignups[] = rows.map((r) => ({
+    ...r,
+    signup_count: Number(r.signup_count),
+  }));
+  const events = allEvents.filter((e) => !isEventEnded(e));
+  // Archive: ended events, most recent first.
+  const pastEvents = allEvents.filter((e) => isEventEnded(e)).reverse();
 
-  // Group by month (YYYY-MM)
-  const byMonth = new Map<string, EventWithSignups[]>();
-  for (const e of events) {
-    const monthKey = e.event_date.slice(0, 7);
-    if (!byMonth.has(monthKey)) byMonth.set(monthKey, []);
-    byMonth.get(monthKey)!.push(e);
-  }
-  const months: { monthKey: string; monthLabel: string; events: EventWithSignups[] }[] = [];
-  for (const [monthKey, monthEvents] of byMonth.entries()) {
-    const d = new Date(monthKey + "-01T12:00:00");
-    months.push({
-      monthKey,
-      monthLabel: d.toLocaleDateString("en-GB", { month: "long", year: "numeric" }),
-      events: monthEvents,
-    });
-  }
-  months.sort((a, b) => a.monthKey.localeCompare(b.monthKey));
+  const months = groupByMonth(events);
+  const archiveMonths = groupByMonth(pastEvents);
 
   const userSignedUpEventIds = db
     .prepare("SELECT event_id FROM event_signups WHERE user_id = ?")
@@ -78,6 +79,8 @@ export async function loader({ request }: { request: Request }) {
 
   return {
     months,
+    archiveMonths,
+    archiveCount: pastEvents.length,
     location: LOCATION,
     time: TIME,
     userSignedUpEventIds: [...userSignedUpSet],
@@ -188,12 +191,13 @@ function formatBlockedDate(unixSeconds: number) {
 }
 
 export default function EventsIndex() {
-  const { months, location, time, userSignedUpEventIds, signupEmojiPreview, blockedUntil, isAdmin } = useLoaderData<typeof loader>();
+  const { months, archiveMonths, archiveCount, location, time, userSignedUpEventIds, signupEmojiPreview, blockedUntil, isAdmin } = useLoaderData<typeof loader>();
   const actionData = useActionData<typeof action>();
   const [bulkMode, setBulkMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
   const [showBulkSuccessToast, setShowBulkSuccessToast] = useState(false);
   const [blockedToast, setBlockedToast] = useState<string | null>(null);
+  const [showArchive, setShowArchive] = useState(false);
   const userSignedUpSet = new Set(userSignedUpEventIds ?? []);
   const idsToUnsignup = (userSignedUpEventIds ?? []).filter((id) => !selectedIds.has(id));
 
@@ -226,7 +230,7 @@ export default function EventsIndex() {
     });
   }
 
-  const cardContent = (event: EventWithSignups) => (
+  const cardContent = (event: EventWithSignups, past = false) => (
     <>
       <div className="w-full aspect-[21/9] shrink-0 rounded-t-2xl overflow-hidden bg-neutral-200/80 dark:bg-neutral-700/60 flex items-center justify-center relative">
         {bulkMode && (
@@ -246,7 +250,12 @@ export default function EventsIndex() {
         )}
         {!bulkMode && userSignedUpSet.has(event.id) && (
           <span className="absolute top-2 left-2 z-10 inline-flex items-center rounded-full bg-green-500/90 px-2.5 py-0.5 text-[12px] font-medium text-white shadow-sm">
-            Attending
+            {past ? "Signed up" : "Attending"}
+          </span>
+        )}
+        {past && (
+          <span className="absolute top-2 right-2 z-10 inline-flex items-center rounded-full bg-neutral-800/80 dark:bg-neutral-900/80 px-2.5 py-0.5 text-[12px] font-medium text-white shadow-sm">
+            Ended
           </span>
         )}
         {!event.custom && (
@@ -269,7 +278,7 @@ export default function EventsIndex() {
         <span className="text-[13px] text-neutral-500 dark:text-neutral-400 mt-0.5 flex items-center justify-end gap-2 flex-wrap">
           <span>
             {event.signup_count === 0
-              ? "No one signed up yet"
+              ? past ? "No one signed up" : "No one signed up yet"
               : `${event.signup_count} registered`}
           </span>
           {signupEmojiPreview?.[event.id]?.emojis?.length ? (
@@ -296,6 +305,51 @@ export default function EventsIndex() {
         </span>
       </div>
     </>
+  );
+
+  const renderMonths = (list: typeof months, past = false) => (
+    <div className="space-y-8">
+      {list.map(({ monthKey, monthLabel, events }) => (
+        <section key={monthKey}>
+          <h2 className="text-[17px] font-semibold text-neutral-700 dark:text-neutral-300 mb-3">
+            {monthLabel}
+          </h2>
+          <ul className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
+            {events.map((event) => (
+              <li key={event.id}>
+                {bulkMode ? (
+                  <div
+                    role="button"
+                    tabIndex={0}
+                    onClick={() => toggleSelect(event.id)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" || e.key === " ") {
+                        e.preventDefault();
+                        toggleSelect(event.id);
+                      }
+                    }}
+                    className={`flex flex-col h-full rounded-2xl border overflow-hidden cursor-pointer transition-colors hover:bg-neutral-50 dark:hover:bg-neutral-700/80 focus:outline-none focus:ring-2 focus:ring-[#f56772] focus:ring-offset-2 dark:focus:ring-offset-neutral-900 ${
+                      selectedIds.has(event.id)
+                        ? "bg-[#f56772]/10 dark:bg-[#f56772]/15 border-[#f56772]/40 dark:border-[#f56772]/30"
+                        : "bg-white dark:bg-neutral-800/80 border-neutral-200/80 dark:border-neutral-700/60"
+                    }`}
+                  >
+                    {cardContent(event)}
+                  </div>
+                ) : (
+                  <Link
+                    to={`/events/${event.id}`}
+                    className="flex flex-col h-full rounded-2xl bg-white dark:bg-neutral-800/80 border border-neutral-200/80 dark:border-neutral-700/60 overflow-hidden active:bg-neutral-50 dark:active:bg-neutral-700/80 transition-colors"
+                  >
+                    {cardContent(event, past)}
+                  </Link>
+                )}
+              </li>
+            ))}
+          </ul>
+        </section>
+      ))}
+    </div>
   );
 
   return (
@@ -381,49 +435,40 @@ export default function EventsIndex() {
             Removed from {actionData.removed} {actionData.removed === 1 ? "event" : "events"}.
           </p>
         )}
-        <div className="space-y-8">
-          {months.map(({ monthKey, monthLabel, events }) => (
-            <section key={monthKey}>
-              <h2 className="text-[17px] font-semibold text-neutral-700 dark:text-neutral-300 mb-3">
-                {monthLabel}
-              </h2>
-              <ul className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
-                {events.map((event) => (
-                  <li key={event.id}>
-                    {bulkMode ? (
-                      <div
-                        role="button"
-                        tabIndex={0}
-                        onClick={() => toggleSelect(event.id)}
-                        onKeyDown={(e) => {
-                          if (e.key === "Enter" || e.key === " ") {
-                            e.preventDefault();
-                            toggleSelect(event.id);
-                          }
-                        }}
-                        className={`flex flex-col h-full rounded-2xl border overflow-hidden cursor-pointer transition-colors hover:bg-neutral-50 dark:hover:bg-neutral-700/80 focus:outline-none focus:ring-2 focus:ring-[#f56772] focus:ring-offset-2 dark:focus:ring-offset-neutral-900 ${
-                          selectedIds.has(event.id)
-                            ? "bg-[#f56772]/10 dark:bg-[#f56772]/15 border-[#f56772]/40 dark:border-[#f56772]/30"
-                            : "bg-white dark:bg-neutral-800/80 border-neutral-200/80 dark:border-neutral-700/60"
-                        }`}
-                      >
-                        {cardContent(event)}
-                      </div>
-                    ) : (
-                      <Link
-                        to={`/events/${event.id}`}
-                        className="flex flex-col h-full rounded-2xl bg-white dark:bg-neutral-800/80 border border-neutral-200/80 dark:border-neutral-700/60 overflow-hidden active:bg-neutral-50 dark:active:bg-neutral-700/80 transition-colors"
-                      >
-                        {cardContent(event)}
-                      </Link>
-                    )}
-                  </li>
-                ))}
-              </ul>
-            </section>
-          ))}
-        </div>
+        {renderMonths(months)}
 
+        {!bulkMode && archiveCount > 0 && (
+          <section className="mt-10">
+            <button
+              type="button"
+              onClick={() => setShowArchive((v) => !v)}
+              aria-expanded={showArchive}
+              aria-controls="past-events"
+              className="group flex w-full items-center gap-4 text-[15px] font-medium text-neutral-500 dark:text-neutral-400 hover:text-neutral-800 dark:hover:text-neutral-200 transition-colors"
+            >
+              <span className="h-px flex-1 bg-neutral-300 dark:bg-neutral-700" aria-hidden="true" />
+              <span className="flex items-center gap-1.5">
+                Past events {archiveCount}
+                <svg
+                  className={`w-4 h-4 transition-transform ${showArchive ? "rotate-180" : ""}`}
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                  strokeWidth={2}
+                  aria-hidden="true"
+                >
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+                </svg>
+              </span>
+              <span className="h-px flex-1 bg-neutral-300 dark:bg-neutral-700" aria-hidden="true" />
+            </button>
+            {showArchive && (
+              <div id="past-events" className="mt-6">
+                {renderMonths(archiveMonths, true)}
+              </div>
+            )}
+          </section>
+        )}
       </div>
 
       {bulkMode && (
