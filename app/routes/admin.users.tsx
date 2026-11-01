@@ -141,6 +141,10 @@ export async function action({ request }: Route.ActionArgs) {
   return null;
 }
 
+function hasRealName(u: AdminUserRow): boolean {
+  return !!(u.first_name?.trim() || u.last_name?.trim());
+}
+
 function displayName(u: AdminUserRow): string {
   const name = [u.first_name, u.last_name].filter(Boolean).join(" ").trim();
   return name || u.username;
@@ -365,20 +369,11 @@ export default function AdminUsers() {
                       />
                     </div>
                   </th>
-                  <th className="sticky top-0 left-12 z-20 w-14 min-w-[3.5rem] px-4 py-3 text-[12px] font-semibold uppercase tracking-wider text-neutral-500 dark:text-neutral-400 bg-white dark:bg-neutral-800/80 shadow-[2px_0_4px_-2px_rgba(0,0,0,0.08)] dark:shadow-[2px_0_4px_-2px_rgba(0,0,0,0.3)]">
+                  <th className="sticky top-0 z-10 px-4 py-3 text-[12px] font-semibold uppercase tracking-wider text-neutral-500 dark:text-neutral-400 bg-white dark:bg-neutral-800/80 w-14 min-w-[3.5rem]">
                     Emoji
                   </th>
-                  <th className="sticky top-0 left-[112px] z-20 min-w-[8rem] px-4 py-3 text-[12px] font-semibold uppercase tracking-wider text-neutral-500 dark:text-neutral-400 bg-white dark:bg-neutral-800/80 shadow-[2px_0_4px_-2px_rgba(0,0,0,0.08)] dark:shadow-[2px_0_4px_-2px_rgba(0,0,0,0.3)]">
+                  <th className="sticky top-0 z-10 px-4 py-3 text-[12px] font-semibold uppercase tracking-wider text-neutral-500 dark:text-neutral-400 bg-white dark:bg-neutral-800/80 min-w-[10rem]">
                     Name
-                  </th>
-                  <th className="sticky top-0 z-10 px-4 py-3 text-[12px] font-semibold uppercase tracking-wider text-neutral-500 dark:text-neutral-400 bg-white dark:bg-neutral-800/80">
-                    Username
-                  </th>
-                  <th className="sticky top-0 z-10 min-w-[10rem] px-4 py-3 text-[12px] font-semibold uppercase tracking-wider text-neutral-500 dark:text-neutral-400 bg-white dark:bg-neutral-800/80">
-                    First name
-                  </th>
-                  <th className="sticky top-0 z-10 min-w-[10rem] px-4 py-3 text-[12px] font-semibold uppercase tracking-wider text-neutral-500 dark:text-neutral-400 bg-white dark:bg-neutral-800/80">
-                    Last name
                   </th>
                   <th className="sticky top-0 z-10 min-w-[16rem] px-4 py-3 text-[12px] font-semibold uppercase tracking-wider text-neutral-500 dark:text-neutral-400 bg-white dark:bg-neutral-800/80">
                     Email
@@ -448,24 +443,22 @@ export default function AdminUsers() {
                         />
                       </div>
                     </td>
-                    <td className={`sticky left-12 z-[5] w-14 min-w-[3.5rem] px-4 py-3 ${stickyCell}`}>
+                    <td className="w-14 min-w-[3.5rem] px-4 py-3">
                       <span className="text-xl leading-none" aria-hidden>
                         {u.profile_emoji || "👤"}
                       </span>
                     </td>
-                    <td className={`sticky left-[112px] z-[5] min-w-[8rem] px-4 py-3 ${stickyCell}`}>
-                      <span className="text-[15px] text-neutral-900 dark:text-white font-medium">
-                        {displayName(u)}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3 text-[15px] text-neutral-700 dark:text-neutral-300">
-                      {u.username}
-                    </td>
-                    <td className="min-w-[10rem] px-4 py-3 text-[14px] text-neutral-600 dark:text-neutral-400">
-                      {u.first_name ?? "—"}
-                    </td>
-                    <td className="min-w-[10rem] px-4 py-3 text-[14px] text-neutral-600 dark:text-neutral-400">
-                      {u.last_name ?? "—"}
+                    <td className="min-w-[10rem] px-4 py-3">
+                      {hasRealName(u) ? (
+                        <>
+                          <span className="block text-[15px] text-neutral-900 dark:text-white font-medium">
+                            {displayName(u)}
+                          </span>
+                          <span className="block text-[13px] text-neutral-500 dark:text-neutral-400">@{u.username}</span>
+                        </>
+                      ) : (
+                        <span className="block text-[15px] text-neutral-900 dark:text-white font-medium">@{u.username}</span>
+                      )}
                     </td>
                     <td className="min-w-[16rem] px-4 py-3 text-[14px] text-neutral-600 dark:text-neutral-400 break-all">
                       {u.email}
