@@ -3,13 +3,21 @@ import { Link, useFetcher, useLocation } from "react-router";
 
 export type PanelNotice = {
   id: number;
-  event_id: number;
-  kind: "update" | "cancelled";
+  /** Null for direct messages, which aren't tied to an event. */
+  event_id: number | null;
+  kind: "update" | "cancelled" | "message";
+  important: boolean;
   message: string;
-  event_date: string;
+  event_date: string | null;
   event_title: string | null;
   created_at: number;
   read: boolean;
+};
+
+const NOTICE_HEADINGS: Record<PanelNotice["kind"], string> = {
+  update: "Event update",
+  cancelled: "Event cancelled",
+  message: "Message from the organisers",
 };
 
 function formatEventDate(isoDate: string) {
@@ -45,13 +53,19 @@ function NotificationItem({
   // Optimistically show as read while the request is in flight.
   const read = notice.read || forceRead || fetcher.state !== "idle";
   const cancelled = notice.kind === "cancelled";
-  const eventLabel = formatEventDate(notice.event_date) + (notice.event_title?.trim() ? ` · ${notice.event_title.trim()}` : "");
+  const eventLabel = notice.event_date
+    ? formatEventDate(notice.event_date) + (notice.event_title?.trim() ? ` · ${notice.event_title.trim()}` : "")
+    : null;
 
   return (
     <li className={`flex gap-3 px-4 py-3 ${read ? "" : "bg-[#f56772]/[0.06] dark:bg-[#f56772]/10"}`}>
       <span
         className={`mt-0.5 inline-grid h-8 w-8 shrink-0 place-items-center rounded-full ${
-          cancelled ? "bg-red-500/15 text-red-600 dark:text-red-400" : "bg-[#f56772]/15 text-[#f56772]"
+          cancelled
+            ? "bg-red-500/15 text-red-600 dark:text-red-400"
+            : notice.important
+              ? "bg-amber-500/15 text-amber-600 dark:text-amber-400"
+              : "bg-[#f56772]/15 text-[#f56772]"
         } ${read ? "opacity-60" : ""}`}
         aria-hidden
       >
@@ -73,18 +87,28 @@ function NotificationItem({
             }`}
           >
             {!read && <span className="h-2 w-2 shrink-0 rounded-full bg-[#f56772]" aria-label="Unread" />}
-            {cancelled ? "Event cancelled" : "Event update"}
+            {NOTICE_HEADINGS[notice.kind]}
+            {notice.important && (
+              <span className="ml-0.5 inline-flex items-center rounded-full bg-amber-500/20 px-1.5 py-px text-[11px] font-semibold text-amber-700 dark:text-amber-300 no-underline">
+                Important
+              </span>
+            )}
           </p>
         </Link>
         <p className="text-[12px] text-neutral-500 dark:text-neutral-400 truncate">
-          <Link
-            to={`/events/${notice.event_id}`}
-            onClick={onNavigate}
-            className="font-medium text-[#f56772] hover:underline"
-          >
-            {eventLabel}
-          </Link>{" "}
-          · {formatAgo(notice.created_at)}
+          {notice.event_id && eventLabel ? (
+            <>
+              <Link
+                to={`/events/${notice.event_id}`}
+                onClick={onNavigate}
+                className="font-medium text-[#f56772] hover:underline"
+              >
+                {eventLabel}
+              </Link>{" "}
+              ·{" "}
+            </>
+          ) : null}
+          {formatAgo(notice.created_at)}
         </p>
         <Link to={`/notifications/${notice.id}`} onClick={onNavigate} className="block">
           <p

@@ -1,7 +1,7 @@
 import { Link, useLoaderData } from "react-router";
 import type { Route } from "./+types/notifications.$noticeId";
-import { requireVerifiedUser } from "~/lib/auth.server";
-import { getDb, getNoticeById, markNoticeRead } from "~/lib/db.server";
+import { requireVerifiedUser, isAdmin } from "~/lib/auth.server";
+import { getDb, getNoticeById, isNoticeForUser, markNoticeRead } from "~/lib/db.server";
 
 export function meta({}: Route.MetaArgs) {
   return [{ title: "Notification – Terrible Football Liverpool" }];
@@ -15,8 +15,13 @@ export async function loader({ request, params }: Route.LoaderArgs) {
   const db = getDb();
   const notice = getNoticeById(db, id);
   if (!notice) throw new Response("Not found", { status: 404 });
+  const addressedToUser = isNoticeForUser(db, id, user.id);
+  // Direct messages are private to their recipients (and admins).
+  if (notice.kind === "message" && !addressedToUser && !isAdmin(user)) {
+    throw new Response("Not found", { status: 404 });
+  }
   // Opening a notification marks it as read.
-  markNoticeRead(db, user.id, id);
+  if (addressedToUser) markNoticeRead(db, user.id, id);
   return { notice };
 }
 
@@ -41,16 +46,31 @@ export default function NotificationDetail() {
           ← Back to notifications
         </Link>
         <div className="rounded-2xl bg-white dark:bg-neutral-800/80 p-6 shadow-sm dark:shadow-none border border-neutral-200/60 dark:border-neutral-700/60">
-          {cancelled && (
-            <span className="mb-3 inline-flex items-center rounded-full bg-red-500/15 px-2.5 py-0.5 text-[12px] font-medium text-red-600 dark:text-red-400">
-              Event cancelled
-            </span>
+          {(cancelled || notice.important) && (
+            <div className="mb-3 flex flex-wrap gap-2">
+              {cancelled && (
+                <span className="inline-flex items-center rounded-full bg-red-500/15 px-2.5 py-0.5 text-[12px] font-medium text-red-600 dark:text-red-400">
+                  Event cancelled
+                </span>
+              )}
+              {notice.important && (
+                <span className="inline-flex items-center rounded-full bg-amber-500/20 px-2.5 py-0.5 text-[12px] font-semibold text-amber-700 dark:text-amber-300">
+                  Important
+                </span>
+              )}
+            </div>
           )}
           <p className="text-[13px] text-neutral-500 dark:text-neutral-400 mb-2">
-            {cancelled ? "Cancelled event" : "Update for event"}:{" "}
-            <Link to={`/events/${notice.event_id}`} className="font-medium text-[#f56772] hover:underline">
-              {formatEventLabel(notice.event_date, notice.event_title)}
-            </Link>
+            {notice.event_id && notice.event_date ? (
+              <>
+                {cancelled ? "Cancelled event" : "Update for event"}:{" "}
+                <Link to={`/events/${notice.event_id}`} className="font-medium text-[#f56772] hover:underline">
+                  {formatEventLabel(notice.event_date, notice.event_title)}
+                </Link>
+              </>
+            ) : (
+              "Message from the organisers"
+            )}
           </p>
           <p className="text-[17px] text-neutral-900 dark:text-white leading-relaxed whitespace-pre-wrap">
             {notice.message}

@@ -1,11 +1,11 @@
-import { Form, Link, useActionData, useLoaderData, useSearchParams } from "react-router";
+import { Form, Link, useActionData, useFetcher, useLoaderData, useSearchParams } from "react-router";
 import { useEffect, useMemo, useState } from "react";
 
 const PAGE_SIZE_OPTIONS = [10, 20, 50, 100] as const;
 const DEFAULT_PAGE_SIZE = 20;
 import type { Route } from "./+types/admin.users";
 import { createVerificationToken, requireAdmin, requireSuperAdmin, isSuperAdmin } from "~/lib/auth.server";
-import { getDb, isUserBlocked, isEventEnded, LATE_BLOCK_SECONDS } from "~/lib/db.server";
+import { getDb, createDirectNotice, isUserBlocked, isEventEnded, LATE_BLOCK_SECONDS } from "~/lib/db.server";
 import { isEmailConfigured, sendVerificationEmail } from "~/lib/email.server";
 
 export function meta({}: Route.MetaArgs) {
@@ -47,6 +47,24 @@ export async function action({ request }: Route.ActionArgs) {
   const formData = await request.formData();
   const intent = formData.get("intent");
   const db = getDb();
+
+  if (intent === "send-notification") {
+    const message = formData.get("message");
+    if (typeof message !== "string" || !message.trim()) {
+      return { notifyError: "Please write a message." };
+    }
+    const userIds = formData
+      .getAll("userId")
+      .map((id) => parseInt(String(id), 10))
+      .filter((n) => !Number.isNaN(n));
+    if (userIds.length === 0) return { notifyError: "Select at least one user." };
+    const sent = createDirectNotice(db, {
+      userIds,
+      message: message.slice(0, 2000),
+      createdBy: currentUser.id,
+    });
+    return { notifySent: sent };
+  }
 
   if (intent === "resend-verification") {
     const rawIds = formData.getAll("userId");
@@ -177,6 +195,9 @@ export default function AdminUsers() {
   const [filterAdmin, setFilterAdmin] = useState<"all" | "yes" | "no">("all");
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
   const [showResendToast, setShowResendToast] = useState(false);
+  const [notifyModalOpen, setNotifyModalOpen] = useState(false);
+  const [notifyToast, setNotifyToast] = useState<string | null>(null);
+  const notifyFetcher = useFetcher<typeof action>();
 
   useEffect(() => {
     setSelectedIds(new Set());
@@ -185,6 +206,18 @@ export default function AdminUsers() {
   useEffect(() => {
     if (actionData?.resendOk) setShowResendToast(true);
   }, [actionData?.resendOk]);
+
+  // Close the modal and confirm once a notification has been sent.
+  useEffect(() => {
+    const data = notifyFetcher.data;
+    if (notifyFetcher.state !== "idle" || !data || !("notifySent" in data)) return;
+    const sent = data.notifySent ?? 0;
+    setNotifyModalOpen(false);
+    setSelectedIds(new Set());
+    setNotifyToast(`Notification sent to ${sent} ${sent === 1 ? "user" : "users"}.`);
+    const t = setTimeout(() => setNotifyToast(null), 4000);
+    return () => clearTimeout(t);
+  }, [notifyFetcher.state, notifyFetcher.data]);
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -526,6 +559,13 @@ export default function AdminUsers() {
                 </button>
               </div>
               <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setNotifyModalOpen(true)}
+                  className="rounded-lg bg-[#f56772] px-3 py-1.5 text-[13px] font-medium text-white hover:opacity-90 transition-opacity"
+                >
+                  Send notification ({selectedIds.size})
+                </button>
                 {selectedUnverified.length > 0 && (
                   <Form method="post">
                     <input type="hidden" name="intent" value="resend-verification" />
@@ -666,6 +706,86 @@ export default function AdminUsers() {
           <button
             type="button"
             onClick={() => setShowResendToast(false)}
+            className="shrink-0 rounded-lg p-1.5 bg-white/20 hover:bg-white/30 text-white transition-colors"
+            aria-label="Dismiss"
+          >
+            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+        </div>
+      )}
+      {notifyModalOpen && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50"
+          onClick={() => setNotifyModalOpen(false)}
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="notify-modal-title"
+        >
+          <div
+            className="bg-white dark:bg-neutral-800 rounded-3xl shadow-xl max-w-md w-full p-6 border border-neutral-200/80 dark:border-neutral-700/60"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h3 id="notify-modal-title" className="text-[17px] font-semibold text-neutral-900 dark:text-white mb-2">
+              Send notification
+            </h3>
+            <p className="text-[15px] text-neutral-600 dark:text-neutral-300 mb-4">
+              {selectedIds.size === 1
+                ? "It will appear in their notification panel, marked as important."
+                : `It will appear in the notification panel of ${selectedIds.size} users, marked as important.`}
+            </p>
+            <notifyFetcher.Form method="post">
+              <input type="hidden" name="intent" value="send-notification" />
+              {[...selectedIds].map((id) => (
+                <input key={id} type="hidden" name="userId" value={id} />
+              ))}
+              <label htmlFor="notify-message" className="block text-[13px] font-medium text-neutral-600 dark:text-neutral-400 mb-1.5">
+                Message
+              </label>
+              <textarea
+                id="notify-message"
+                name="message"
+                rows={5}
+                maxLength={2000}
+                required
+                autoFocus
+                className="w-full rounded-xl border border-neutral-300 dark:border-neutral-600 bg-white dark:bg-neutral-900/60 px-3.5 py-2.5 text-[15px] text-neutral-900 dark:text-white placeholder:text-neutral-400 focus:outline-none focus:ring-2 focus:ring-[#f56772] mb-2"
+              />
+              {notifyFetcher.data && "notifyError" in notifyFetcher.data && (
+                <p className="text-[14px] text-red-600 dark:text-red-400 mb-2">{notifyFetcher.data.notifyError}</p>
+              )}
+              <div className="flex gap-2 mt-2">
+                <button
+                  type="button"
+                  onClick={() => setNotifyModalOpen(false)}
+                  className="flex-1 rounded-xl border border-neutral-300 dark:border-neutral-600 px-4 py-2.5 text-[15px] font-medium text-neutral-700 dark:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-700/50 transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={notifyFetcher.state !== "idle"}
+                  className="flex-1 rounded-xl bg-[#f56772] px-4 py-2.5 text-[15px] font-medium text-white hover:opacity-90 disabled:opacity-60 transition-opacity"
+                >
+                  {notifyFetcher.state !== "idle" ? "Sending…" : "Send"}
+                </button>
+              </div>
+            </notifyFetcher.Form>
+          </div>
+        </div>
+      )}
+
+      {notifyToast && (
+        <div
+          className="fixed top-20 left-1/2 -translate-x-1/2 z-50 w-full max-w-md max-w-[calc(100vw-2rem)] rounded-2xl bg-neutral-700 dark:bg-neutral-600 text-white px-4 py-3 shadow-lg border border-neutral-600 dark:border-neutral-500 flex items-center justify-between gap-3"
+          role="status"
+          aria-live="polite"
+        >
+          <p className="text-[15px] font-medium">{notifyToast}</p>
+          <button
+            type="button"
+            onClick={() => setNotifyToast(null)}
             className="shrink-0 rounded-lg p-1.5 bg-white/20 hover:bg-white/30 text-white transition-colors"
             aria-label="Dismiss"
           >

@@ -9,14 +9,19 @@ export function meta({}: Route.MetaArgs) {
 
 type ListedNotice = {
   id: number;
-  event_id: number;
+  /** Null for direct messages. */
+  event_id: number | null;
   kind: NoticeKind;
+  important: boolean;
   message: string;
   created_at: number;
-  event_date: string;
+  event_date: string | null;
   event_title: string | null;
   /** Only tracked for a player's own notifications; admins see every notice. */
   read: boolean | null;
+  /** Admin view only: who a direct message went to. */
+  recipient_count?: number;
+  recipient_names?: string | null;
 };
 
 export async function loader({ request }: Route.LoaderArgs) {
@@ -112,18 +117,37 @@ export default function Notifications() {
                         <span className="inline-flex items-center rounded-full bg-red-500/15 px-2 py-0.5 text-[12px] font-medium text-red-600 dark:text-red-400">
                           Cancelled
                         </span>
+                      ) : notice.kind === "message" ? (
+                        <span className="inline-flex items-center rounded-full bg-violet-500/15 px-2 py-0.5 text-[12px] font-medium text-violet-700 dark:text-violet-300">
+                          Message
+                        </span>
                       ) : (
                         <span className="inline-flex items-center rounded-full bg-sky-500/15 px-2 py-0.5 text-[12px] font-medium text-sky-700 dark:text-sky-300">
                           Update
                         </span>
                       )}
+                      {notice.important && (
+                        <span className="inline-flex items-center rounded-full bg-amber-500/20 px-2 py-0.5 text-[12px] font-semibold text-amber-700 dark:text-amber-300">
+                          Important
+                        </span>
+                      )}
                     </span>
-                    <Link
-                      to={`/events/${notice.event_id}`}
-                      className="min-w-0 text-right text-[13px] font-medium text-[#f56772] hover:underline"
-                    >
-                      {formatEventLabel(notice.event_date, notice.event_title)}
-                    </Link>
+                    {notice.event_id && notice.event_date ? (
+                      <Link
+                        to={`/events/${notice.event_id}`}
+                        className="min-w-0 text-right text-[13px] font-medium text-[#f56772] hover:underline"
+                      >
+                        {formatEventLabel(notice.event_date, notice.event_title)}
+                      </Link>
+                    ) : (
+                      <span className="min-w-0 text-right text-[13px] text-neutral-500 dark:text-neutral-400">
+                        {isAdmin && notice.recipient_count
+                          ? `To ${notice.recipient_names}${
+                              notice.recipient_count > 3 ? ` +${notice.recipient_count - 3} more` : ""
+                            }`
+                          : "From the organisers"}
+                      </span>
+                    )}
                   </div>
                   <Link to={`/notifications/${notice.id}`} className="block group">
                     <p

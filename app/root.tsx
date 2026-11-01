@@ -38,6 +38,7 @@ export async function loader({ request }: { request: Request }) {
         id: n.id,
         event_id: n.event_id,
         kind: n.kind,
+        important: n.important,
         message: n.message,
         event_date: n.event_date,
         event_title: n.event_title,

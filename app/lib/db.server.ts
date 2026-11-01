@@ -47,11 +47,19 @@ function createDb(): Database.Database {
 
     CREATE TABLE IF NOT EXISTS notices (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
-      event_id INTEGER NOT NULL REFERENCES events(id) ON DELETE CASCADE,
+      event_id INTEGER REFERENCES events(id) ON DELETE CASCADE,
       message TEXT NOT NULL,
       created_at INTEGER NOT NULL DEFAULT (unixepoch()),
-      created_by INTEGER REFERENCES users(id)
+      created_by INTEGER REFERENCES users(id),
+      kind TEXT NOT NULL DEFAULT 'update',
+      important INTEGER NOT NULL DEFAULT 0
     );
+    CREATE TABLE IF NOT EXISTS notice_recipients (
+      notice_id INTEGER NOT NULL REFERENCES notices(id) ON DELETE CASCADE,
+      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      PRIMARY KEY (notice_id, user_id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_notice_recipients_user ON notice_recipients(user_id);
     CREATE TABLE IF NOT EXISTS notice_reads (
       user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
       notice_id INTEGER NOT NULL REFERENCES notices(id) ON DELETE CASCADE,
@@ -197,6 +205,36 @@ function createDb(): Database.Database {
   if (!noticeCols.some((c) => c.name === "kind")) {
     // 'update' (admin-written notice) or 'cancelled' (sent when an event is cancelled).
     db.exec("ALTER TABLE notices ADD COLUMN kind TEXT NOT NULL DEFAULT 'update'");
+  }
+  const noticeEventCol = (
+    db.prepare("PRAGMA table_info(notices)").all() as { name: string; notnull: number }[]
+  ).find((c) => c.name === "event_id");
+  if (noticeEventCol?.notnull) {
+    // Direct messages to users aren't tied to an event, so event_id must be
+    // nullable. SQLite can't relax NOT NULL via ALTER TABLE, so rebuild the
+    // table (keeping ids, so notice_reads still line up). Foreign keys are
+    // switched off for the swap so dropping the old table can't cascade.
+    const fkWasOn = db.pragma("foreign_keys", { simple: true }) === 1;
+    if (fkWasOn) db.pragma("foreign_keys = OFF");
+    db.transaction(() => {
+      db.exec(`
+        CREATE TABLE notices_new (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          event_id INTEGER REFERENCES events(id) ON DELETE CASCADE,
+          message TEXT NOT NULL,
+          created_at INTEGER NOT NULL DEFAULT (unixepoch()),
+          created_by INTEGER REFERENCES users(id),
+          kind TEXT NOT NULL DEFAULT 'update',
+          important INTEGER NOT NULL DEFAULT 0
+        );
+        INSERT INTO notices_new (id, event_id, message, created_at, created_by, kind)
+          SELECT id, event_id, message, created_at, created_by, kind FROM notices;
+        DROP TABLE notices;
+        ALTER TABLE notices_new RENAME TO notices;
+        CREATE INDEX IF NOT EXISTS idx_notices_event ON notices(event_id);
+      `);
+    })();
+    if (fkWasOn) db.pragma("foreign_keys = ON");
   }
   // Notifications used to be dismissible (hidden for good); they're now kept
   // and only marked as read. Carry old dismissals over as reads.
@@ -381,6 +419,7 @@ export function deleteUserAccount(db: Database.Database, userId: number): void {
     db.prepare("DELETE FROM event_signups WHERE user_id = ?").run(uid);
     db.prepare("DELETE FROM event_hosts WHERE user_id = ?").run(uid);
     db.prepare("DELETE FROM notice_reads WHERE user_id = ?").run(uid);
+    db.prepare("DELETE FROM notice_recipients WHERE user_id = ?").run(uid);
     db.prepare("UPDATE notices SET created_by = NULL WHERE created_by = ?").run(uid);
     const convo = db.prepare("SELECT id FROM organiser_conversations WHERE user_id = ?").get(uid) as
       | { id: number }
@@ -777,28 +816,67 @@ export function setEventHost(
   }
 }
 
-export type NoticeKind = "update" | "cancelled";
+/** 'update' / 'cancelled' are tied to an event; 'message' is sent directly to chosen users. */
+export type NoticeKind = "update" | "cancelled" | "message";
 
 export type Notice = {
   id: number;
-  event_id: number;
+  /** Null for direct messages. */
+  event_id: number | null;
   message: string;
   created_at: number;
   created_by: number | null;
   kind: NoticeKind;
+  important: boolean;
 };
+
+type NoticeRow = Omit<Notice, "important"> & { important: number };
+const NOTICE_COLS = "n.id, n.event_id, n.message, n.created_at, n.created_by, n.kind, n.important";
+
+/**
+ * SQL condition: notice `n` is addressed to user @uid — either it's about an
+ * event they signed up for, or it was sent to them directly.
+ */
+const NOTICE_VISIBLE_TO_USER = `(
+  EXISTS (SELECT 1 FROM event_signups s WHERE s.event_id = n.event_id AND s.user_id = @uid)
+  OR EXISTS (SELECT 1 FROM notice_recipients nr WHERE nr.notice_id = n.id AND nr.user_id = @uid)
+)`;
 
 export function createNotice(
   db: Database.Database,
-  opts: { eventId: number; message: string; createdBy?: number; kind?: NoticeKind }
+  opts: { eventId: number; message: string; createdBy?: number; kind?: "update" | "cancelled" }
 ): Notice {
   const run = db
     .prepare("INSERT INTO notices (event_id, message, created_by, kind) VALUES (?, ?, ?, ?)")
     .run(opts.eventId, opts.message.trim(), opts.createdBy ?? null, opts.kind ?? "update");
-  const row = db.prepare("SELECT id, event_id, message, created_at, created_by, kind FROM notices WHERE id = ?").get(
-    run.lastInsertRowid
-  ) as Notice;
-  return row;
+  const row = db.prepare(`SELECT ${NOTICE_COLS} FROM notices n WHERE n.id = ?`).get(run.lastInsertRowid) as NoticeRow;
+  return { ...row, important: row.important === 1 };
+}
+
+/**
+ * Send an important notification straight to specific users (not tied to an
+ * event). Returns how many recipients it went to.
+ */
+export function createDirectNotice(
+  db: Database.Database,
+  opts: { userIds: number[]; message: string; createdBy: number }
+): number {
+  const userIds = [...new Set(opts.userIds)];
+  if (userIds.length === 0 || !opts.message.trim()) return 0;
+  const existsStmt = db.prepare("SELECT 1 FROM users WHERE id = ?");
+  const addRecipient = db.prepare("INSERT OR IGNORE INTO notice_recipients (notice_id, user_id) VALUES (?, ?)");
+  return db.transaction(() => {
+    const { lastInsertRowid } = db
+      .prepare("INSERT INTO notices (event_id, message, created_by, kind, important) VALUES (NULL, ?, ?, 'message', 1)")
+      .run(opts.message.trim(), opts.createdBy);
+    let sent = 0;
+    for (const uid of userIds) {
+      if (!existsStmt.get(uid)) continue;
+      addRecipient.run(lastInsertRowid, uid);
+      sent++;
+    }
+    return sent;
+  })();
 }
 
 export const DEFAULT_CANCELLATION_MESSAGE = "This event has been cancelled.";
@@ -823,70 +901,90 @@ export function cancelEvent(
   })();
 }
 
-export type UserNotice = Notice & { event_date: string; event_title: string | null; read: boolean };
+/** Event fields are null for direct messages. */
+export type NoticeWithEvent = Notice & { event_date: string | null; event_title: string | null };
+export type UserNotice = NoticeWithEvent & { read: boolean };
 
 /**
- * Notifications for events the user has signed up for (including cancelled
- * events), newest first, each flagged read/unread. Capped to the most recent
- * `limit` so the panel stays small.
+ * Notifications addressed to the user (events they signed up for, including
+ * cancelled ones, plus direct messages), newest first, each flagged
+ * read/unread. Capped to the most recent `limit` so the panel stays small.
  */
 export function getNoticesForUser(db: Database.Database, userId: number, limit = 50): UserNotice[] {
   const rows = db
     .prepare(
-      `SELECT n.id, n.event_id, n.message, n.created_at, n.created_by, n.kind, e.event_date, e.title as event_title,
-         (r.notice_id IS NOT NULL) AS read
+      `SELECT ${NOTICE_COLS}, e.event_date, e.title as event_title, (r.notice_id IS NOT NULL) AS read
        FROM notices n
-       INNER JOIN events e ON e.id = n.event_id
-       INNER JOIN event_signups s ON s.event_id = n.event_id AND s.user_id = ?
-       LEFT JOIN notice_reads r ON r.notice_id = n.id AND r.user_id = ?
+       LEFT JOIN events e ON e.id = n.event_id
+       LEFT JOIN notice_reads r ON r.notice_id = n.id AND r.user_id = @uid
+       WHERE ${NOTICE_VISIBLE_TO_USER}
        ORDER BY n.created_at DESC, n.id DESC
-       LIMIT ?`
+       LIMIT @limit`
     )
-    .all(userId, userId, limit) as (Omit<UserNotice, "read"> & { read: number })[];
-  return rows.map((r) => ({ ...r, read: r.read === 1 }));
+    .all({ uid: userId, limit }) as (NoticeRow & { event_date: string | null; event_title: string | null; read: number })[];
+  return rows.map((r) => ({ ...r, important: r.important === 1, read: r.read === 1 }));
 }
 
 export function markNoticeRead(db: Database.Database, userId: number, noticeId: number): void {
   db.prepare("INSERT OR IGNORE INTO notice_reads (user_id, notice_id) VALUES (?, ?)").run(userId, noticeId);
 }
 
-/** Mark every notification the user can see as read. */
+/** Mark every notification addressed to the user as read. */
 export function markAllNoticesRead(db: Database.Database, userId: number): void {
   db.prepare(
     `INSERT OR IGNORE INTO notice_reads (user_id, notice_id)
-     SELECT ?, n.id FROM notices n
-     INNER JOIN event_signups s ON s.event_id = n.event_id AND s.user_id = ?`
-  ).run(userId, userId);
+     SELECT @uid, n.id FROM notices n WHERE ${NOTICE_VISIBLE_TO_USER}`
+  ).run({ uid: userId });
+}
+
+/** True if the notice is addressed to the user (see NOTICE_VISIBLE_TO_USER). */
+export function isNoticeForUser(db: Database.Database, noticeId: number, userId: number): boolean {
+  return !!db
+    .prepare(`SELECT 1 FROM notices n WHERE n.id = @id AND ${NOTICE_VISIBLE_TO_USER}`)
+    .get({ id: noticeId, uid: userId });
 }
 
 /** Single notice by id with event info, or null */
 export function getNoticeById(
   db: Database.Database,
   noticeId: number
-): (Notice & { event_date: string; event_title: string | null; event_cancelled: boolean }) | null {
+): (NoticeWithEvent & { event_cancelled: boolean }) | null {
   const row = db
     .prepare(
-      `SELECT n.id, n.event_id, n.message, n.created_at, n.created_by, n.kind, e.event_date, e.title as event_title,
-         e.cancelled as event_cancelled
+      `SELECT ${NOTICE_COLS}, e.event_date, e.title as event_title, e.cancelled as event_cancelled
        FROM notices n
-       JOIN events e ON e.id = n.event_id
+       LEFT JOIN events e ON e.id = n.event_id
        WHERE n.id = ?`
     )
-    .get(noticeId) as (Notice & { event_date: string; event_title: string | null; event_cancelled: number }) | undefined;
-  return row ? { ...row, event_cancelled: row.event_cancelled === 1 } : null;
+    .get(noticeId) as
+    | (NoticeRow & { event_date: string | null; event_title: string | null; event_cancelled: number | null })
+    | undefined;
+  return row ? { ...row, important: row.important === 1, event_cancelled: row.event_cancelled === 1 } : null;
 }
 
-/** All notices with event info, newest first (for admin listing) */
-export function getNoticesList(db: Database.Database): (Notice & { event_date: string; event_title: string | null })[] {
+/** All notices with event info and direct-message recipients, newest first (admin listing). */
+export function getNoticesList(
+  db: Database.Database
+): (NoticeWithEvent & { recipient_count: number; recipient_names: string | null })[] {
   const rows = db
     .prepare(
-      `SELECT n.id, n.event_id, n.message, n.created_at, n.created_by, n.kind, e.event_date, e.title as event_title
+      `SELECT ${NOTICE_COLS}, e.event_date, e.title as event_title,
+         (SELECT COUNT(*) FROM notice_recipients nr WHERE nr.notice_id = n.id) AS recipient_count,
+         (SELECT GROUP_CONCAT(username, ', ') FROM (
+            SELECT u.username FROM notice_recipients nr JOIN users u ON u.id = nr.user_id
+            WHERE nr.notice_id = n.id ORDER BY u.username LIMIT 3
+         )) AS recipient_names
        FROM notices n
-       JOIN events e ON e.id = n.event_id
-       ORDER BY n.created_at DESC`
+       LEFT JOIN events e ON e.id = n.event_id
+       ORDER BY n.created_at DESC, n.id DESC`
     )
-    .all() as (Notice & { event_date: string; event_title: string | null })[];
-  return rows;
+    .all() as (NoticeRow & {
+    event_date: string | null;
+    event_title: string | null;
+    recipient_count: number;
+    recipient_names: string | null;
+  })[];
+  return rows.map((r) => ({ ...r, important: r.important === 1 }));
 }
 
 export type OrganiserConversation = {
