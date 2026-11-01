@@ -35,5 +35,6 @@ export default [
     index("routes/events._index.tsx"),
     route("create", "routes/events.create.tsx"),
     route(":eventId", "routes/events.$eventId.tsx"),
+    route(":eventId/edit", "routes/events.$eventId.edit.tsx"),
   ]),
 ] satisfies RouteConfig;

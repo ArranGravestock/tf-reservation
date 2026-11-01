@@ -1,9 +1,9 @@
 import { useEffect, useState } from "react";
-import { Form, Link, redirect, useLoaderData, useActionData } from "react-router";
+import { Form, Link, useLoaderData, useActionData } from "react-router";
 import QRCode from "qrcode";
 import type { Route } from "./+types/events.$eventId";
 import { isAdmin, requireAdmin, requireVerifiedUser } from "~/lib/auth.server";
-import { getDb, cancelEvent, updateEvent, isEventEnded, isEventStarted, isEventDate, getEventHosts, setEventHost, isUserBlocked, LATE_BLOCK_SECONDS, type Event } from "~/lib/db.server";
+import { getDb, isEventEnded, isEventStarted, isEventDate, getEventHosts, isUserBlocked, LATE_BLOCK_SECONDS, type Event } from "~/lib/db.server";
 import { DEFAULT_PROFILE_EMOJI } from "~/lib/emoji";
 import { renderMarkdown } from "~/lib/markdown.server";
 
@@ -159,17 +159,6 @@ export async function action({ request, params }: { request: Request; params: Pr
     return { attendanceUpdated: updated };
   }
 
-  if (intent === "cancel") {
-    const admin = await requireAdmin(request);
-    const reason = formData.get("reason");
-    cancelEvent(db, {
-      eventId: id,
-      reason: typeof reason === "string" ? reason.slice(0, 2000) : null,
-      cancelledBy: admin.id,
-    });
-    return redirect("/events");
-  }
-
   if (intent === "update_guests") {
     if (started) return { error: "This event has already started. Sign-ups are closed." };
     if (ended) return { error: "This event has ended." };
@@ -182,27 +171,6 @@ export async function action({ request, params }: { request: Request; params: Pr
       user.id
     );
     return { guestsUpdated: true };
-  }
-
-  if (intent === "edit") {
-    const admin = await requireAdmin(request);
-    const event_date = formData.get("event_date");
-    const title = formData.get("title");
-    const description = formData.get("description");
-    const location = formData.get("location");
-    const time = formData.get("time");
-    const content = formData.get("content");
-    updateEvent(db, id, {
-      ...(typeof event_date === "string" && event_date.trim() && { event_date: event_date.trim() }),
-      ...(title !== undefined && { title: title === "" ? null : String(title).trim() || null }),
-      ...(description !== undefined && { description: description === "" ? null : String(description).trim() || null }),
-      ...(location !== undefined && { location: location === "" ? null : String(location).trim() || null }),
-      ...(time !== undefined && { time: time === "" ? null : String(time).trim() || null }),
-      ...(content !== undefined && { content: content === "" ? null : String(content).trim() || null }),
-    });
-    // Admins can add/remove themselves as a host of this event.
-    setEventHost(db, id, admin.id, formData.get("host_self") === "on");
-    return { editSuccess: true };
   }
 
   if (started) return { error: "This event has already started. Sign-ups are closed." };
@@ -269,13 +237,11 @@ export default function EventDetail() {
   const { event, signups, userSignedUp, currentUserGuestCount, isAdmin, eventEnded, eventStarted, eventCancelled, isFirstTimer, hosts, userIsHost, donationQrCode, whatsappQrCode, contentHtml } = useLoaderData<typeof loader>();
   const actionData = useActionData<typeof action>();
   const [signupModalOpen, setSignupModalOpen] = useState(false);
-  const [cancelModalOpen, setCancelModalOpen] = useState(false);
   const [signupConfirmModalOpen, setSignupConfirmModalOpen] = useState(false);
   const [signupConfirmIsEditMode, setSignupConfirmIsEditMode] = useState(false);
   const [attendanceGoing, setAttendanceGoing] = useState(true);
   const [guestCount, setGuestCount] = useState(0);
   const [signupSearch, setSignupSearch] = useState("");
-  const [isEditing, setIsEditing] = useState(false);
   const [selectedSignupIds, setSelectedSignupIds] = useState<Set<number>>(new Set());
   const [blockedToast, setBlockedToast] = useState<string | null>(null);
 
@@ -317,9 +283,6 @@ export default function EventDetail() {
   }, [actionData]);
 
   useEffect(() => {
-    if (actionData && "editSuccess" in actionData && actionData.editSuccess) {
-      setIsEditing(false);
-    }
     if (actionData && "success" in actionData && actionData.success) {
       setSignupConfirmModalOpen(false);
       setSignupConfirmIsEditMode(false);
@@ -362,8 +325,6 @@ export default function EventDetail() {
   const totalAttendees =
     signups.length + signups.reduce((sum, s) => sum + (s.guest_count ?? 0), 0);
 
-  const inputClass =
-    "w-full rounded-xl bg-white dark:bg-neutral-700 border border-neutral-200 dark:border-neutral-600 px-3 py-2 text-[15px] text-neutral-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-[#f56772]";
 
   return (
     <main className="min-h-screen bg-[#f5f5f7] dark:bg-[#1c1c1e] p-6 pb-24">
@@ -394,23 +355,13 @@ export default function EventDetail() {
           >
             ← Back
           </Link>
-          {isAdmin && !isEditing && !eventCancelled && (
-            <button
-              type="button"
-              onClick={() => setIsEditing(true)}
+          {isAdmin && !eventCancelled && (
+            <Link
+              to={`/events/${event.id}/edit`}
               className="rounded-xl bg-amber-500/90 dark:bg-amber-500/90 hover:bg-amber-500 px-4 py-2 text-[15px] font-medium text-white shrink-0"
             >
               Edit
-            </button>
-          )}
-          {isAdmin && isEditing && (
-            <button
-              type="button"
-              onClick={() => setIsEditing(false)}
-              className="rounded-xl bg-neutral-300 dark:bg-neutral-600 hover:bg-neutral-400 dark:hover:bg-neutral-500 px-4 py-2 text-[15px] font-medium text-neutral-800 dark:text-white shrink-0"
-            >
-              Cancel
-            </button>
+            </Link>
           )}
         </div>
 
@@ -436,137 +387,44 @@ export default function EventDetail() {
           </div>
         )}
 
-        {isAdmin && isEditing ? (
-          <Form method="post" className="space-y-4 mb-6">
-            <input type="hidden" name="intent" value="edit" />
-            {actionData && "editSuccess" in actionData && actionData.editSuccess && (
-              <p className="text-[15px] text-green-600 dark:text-green-400">Saved.</p>
-            )}
-            <input
-              type="text"
-              name="title"
-              defaultValue={event.title ?? ""}
-              placeholder={DEFAULT_TITLE}
-              className={`${inputClass} text-[28px] font-semibold`}
-              aria-label="Title"
-            />
-            <div className="flex flex-wrap gap-3">
-              <input
-                type="date"
-                name="event_date"
-                defaultValue={event.event_date}
-                className={`${inputClass} flex-1 min-w-[140px]`}
-                aria-label="Date"
-              />
-              <input
-                type="text"
-                name="time"
-                defaultValue={event.time ?? ""}
-                placeholder={DEFAULT_TIME}
-                className={`${inputClass} flex-1 min-w-[100px]`}
-                aria-label="Time"
-              />
-            </div>
-            <input
-              type="text"
-              name="location"
-              defaultValue={event.location ?? ""}
-              placeholder={DEFAULT_LOCATION}
-              className={inputClass}
-              aria-label="Location"
-            />
-            <input
-              type="text"
-              name="description"
-              defaultValue={event.description ?? ""}
-              placeholder="Description (optional)"
-              className={inputClass}
-              aria-label="Description"
-            />
-            <div>
-              <textarea
-                name="content"
-                defaultValue={event.content ?? ""}
-                placeholder="Content (optional) — Markdown supported"
-                rows={5}
-                className={`${inputClass} resize-y min-h-[120px]`}
-                aria-label="Content"
-              />
-              <p className="mt-1.5 text-[13px] text-neutral-500 dark:text-neutral-400">
-                Markdown supported — **bold**, _italic_, lists, links, etc.
-              </p>
-            </div>
-            <label className="flex items-center gap-2.5 text-[15px] text-neutral-700 dark:text-neutral-300 py-1">
-              <input
-                type="checkbox"
-                name="host_self"
-                defaultChecked={userIsHost}
-                className="rounded border-neutral-300 dark:border-neutral-600 text-[#f56772] focus:ring-[#f56772]"
-              />
-              I&apos;m hosting this event
-            </label>
-            <div className="flex flex-wrap items-center gap-3">
-              <button
-                type="submit"
-                className="rounded-xl bg-[#f56772] px-4 py-2.5 text-[15px] font-medium text-white hover:opacity-90"
-              >
-                Save changes
-              </button>
-            </div>
-          </Form>
-        ) : null}
-        {isEditing && isAdmin ? (
-          <div className="mb-6">
-            <button
-              type="button"
-              onClick={() => setCancelModalOpen(true)}
-              className="rounded-xl border border-red-300 dark:border-red-500/40 px-4 py-2.5 text-[15px] font-medium text-red-600 dark:text-red-400 hover:bg-red-500/10 transition-colors"
-            >
-              Cancel event
-            </button>
-          </div>
-        ) : (
-          <>
-            <h1 className="text-[28px] font-semibold text-neutral-900 dark:text-white mb-1.5">
-              {title}
-            </h1>
-            <p className="text-[15px] text-neutral-500 dark:text-neutral-400 mb-1.5">
-              {formatDate(event.event_date)} at {time}
+          <h1 className="text-[28px] font-semibold text-neutral-900 dark:text-white mb-1.5">
+            {title}
+          </h1>
+          <p className="text-[15px] text-neutral-500 dark:text-neutral-400 mb-1.5">
+            {formatDate(event.event_date)} at {time}
+          </p>
+          <p className="text-[15px] text-neutral-500 dark:text-neutral-400 mb-1.5">
+            {location}
+          </p>
+          {description && (
+            <p className="text-[15px] text-neutral-500 dark:text-neutral-400 mb-4">
+              {description}
             </p>
-            <p className="text-[15px] text-neutral-500 dark:text-neutral-400 mb-1.5">
-              {location}
-            </p>
-            {description && (
-              <p className="text-[15px] text-neutral-500 dark:text-neutral-400 mb-4">
-                {description}
-              </p>
-            )}
-            {hosts.length > 0 && (
-              <div className="mb-6 flex flex-wrap items-center gap-x-2 gap-y-1.5">
-                <span className="text-[13px] font-medium text-neutral-500 dark:text-neutral-400">
-                  Hosted by
-                </span>
-                {hosts.map((h) => (
-                  <span
-                    key={h.id}
-                    className="inline-flex items-center gap-1.5 rounded-full bg-neutral-100 dark:bg-neutral-700/60 pl-1 pr-2.5 py-0.5 text-[13px] font-medium text-neutral-700 dark:text-neutral-200"
-                  >
-                    <span className="inline-grid place-items-center w-5 h-5 text-[13px] leading-none" aria-hidden>
-                      {h.profile_emoji || DEFAULT_PROFILE_EMOJI}
-                    </span>
-                    {hostDisplayName(h)}
+          )}
+          {hosts.length > 0 && (
+            <div className="mb-6 flex flex-wrap items-center gap-x-2 gap-y-1.5">
+              <span className="text-[13px] font-medium text-neutral-500 dark:text-neutral-400">
+                Hosted by
+              </span>
+              {hosts.map((h) => (
+                <span
+                  key={h.id}
+                  className="inline-flex items-center gap-1.5 rounded-full bg-neutral-100 dark:bg-neutral-700/60 pl-1 pr-2.5 py-0.5 text-[13px] font-medium text-neutral-700 dark:text-neutral-200"
+                >
+                  <span className="inline-grid place-items-center w-5 h-5 text-[13px] leading-none" aria-hidden>
+                    {h.profile_emoji || DEFAULT_PROFILE_EMOJI}
                   </span>
-                ))}
-              </div>
-            )}
-            {contentHtml && (
-              <div
-                className="text-[15px] text-neutral-700 dark:text-neutral-200 mb-6 leading-relaxed [&_p]:mb-3 last:[&_p]:mb-0 [&_a]:text-[#f56772] [&_a]:underline [&_strong]:font-semibold [&_strong]:text-neutral-900 dark:[&_strong]:text-white [&_ul]:list-disc [&_ul]:pl-5 [&_ul]:mb-3 [&_ol]:list-decimal [&_ol]:pl-5 [&_ol]:mb-3 [&_blockquote]:border-l-2 [&_blockquote]:border-neutral-300 dark:[&_blockquote]:border-neutral-600 [&_blockquote]:pl-3 [&_blockquote]:italic [&_code]:rounded [&_code]:bg-neutral-200/80 dark:[&_code]:bg-neutral-700/60 [&_code]:px-1 [&_code]:py-0.5 [&_code]:text-[13px]"
-                dangerouslySetInnerHTML={{ __html: contentHtml }}
-              />
-            )}
-          </>
-        )}
+                  {hostDisplayName(h)}
+                </span>
+              ))}
+            </div>
+          )}
+          {contentHtml && (
+            <div
+              className="text-[15px] text-neutral-700 dark:text-neutral-200 mb-6 leading-relaxed [&_p]:mb-3 last:[&_p]:mb-0 [&_a]:text-[#f56772] [&_a]:underline [&_strong]:font-semibold [&_strong]:text-neutral-900 dark:[&_strong]:text-white [&_ul]:list-disc [&_ul]:pl-5 [&_ul]:mb-3 [&_ol]:list-decimal [&_ol]:pl-5 [&_ol]:mb-3 [&_blockquote]:border-l-2 [&_blockquote]:border-neutral-300 dark:[&_blockquote]:border-neutral-600 [&_blockquote]:pl-3 [&_blockquote]:italic [&_code]:rounded [&_code]:bg-neutral-200/80 dark:[&_code]:bg-neutral-700/60 [&_code]:px-1 [&_code]:py-0.5 [&_code]:text-[13px]"
+              dangerouslySetInnerHTML={{ __html: contentHtml }}
+            />
+          )}
         {!event.custom && (
         <div className="mb-8 rounded-2xl overflow-hidden bg-neutral-200/80 dark:bg-neutral-700/60 aspect-[21/9] flex items-center justify-center shadow-inner ring-1 ring-neutral-200/60 dark:ring-neutral-600/40">
           <img
@@ -985,60 +843,6 @@ export default function EventDetail() {
           </div>
         )}
 
-        {cancelModalOpen && (
-          <div
-            className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50"
-            onClick={() => setCancelModalOpen(false)}
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="cancel-event-modal-title"
-          >
-            <div
-              className="bg-white dark:bg-neutral-800 rounded-3xl shadow-xl max-w-md w-full p-6 border border-neutral-200/80 dark:border-neutral-700/60"
-              onClick={(e) => e.stopPropagation()}
-            >
-              <h3 id="cancel-event-modal-title" className="text-[17px] font-semibold text-neutral-900 dark:text-white mb-2">
-                Cancel this event?
-              </h3>
-              <p className="text-[15px] text-neutral-600 dark:text-neutral-300 mb-4">
-                It will be removed from the events listing.{" "}
-                {signups.length === 0
-                  ? "No one is signed up yet."
-                  : `${signups.length} signed-up ${signups.length === 1 ? "player" : "players"} will get a notification.`}
-              </p>
-              <Form method="post" onSubmit={() => setCancelModalOpen(false)}>
-                <input type="hidden" name="intent" value="cancel" />
-                <label htmlFor="cancel-reason" className="block text-[13px] font-medium text-neutral-600 dark:text-neutral-400 mb-1.5">
-                  Reason (optional)
-                </label>
-                <textarea
-                  id="cancel-reason"
-                  name="reason"
-                  rows={4}
-                  maxLength={2000}
-                  autoFocus
-                  placeholder="e.g. The pitch is waterlogged – see you next week!"
-                  className="w-full rounded-xl border border-neutral-300 dark:border-neutral-600 bg-white dark:bg-neutral-900/60 px-3.5 py-2.5 text-[15px] text-neutral-900 dark:text-white placeholder:text-neutral-400 focus:outline-none focus:ring-2 focus:ring-[#f56772] mb-4"
-                />
-                <div className="flex gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setCancelModalOpen(false)}
-                    className="flex-1 rounded-xl border border-neutral-300 dark:border-neutral-600 px-4 py-2.5 text-[15px] font-medium text-neutral-700 dark:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-700/50 transition-colors"
-                  >
-                    Keep event
-                  </button>
-                  <button
-                    type="submit"
-                    className="flex-1 rounded-xl bg-red-600 px-4 py-2.5 text-[15px] font-medium text-white hover:bg-red-700 active:bg-red-800 transition-colors"
-                  >
-                    Cancel event
-                  </button>
-                </div>
-              </Form>
-            </div>
-          </div>
-        )}
         {signupConfirmModalOpen && (
           <div
             className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50"
