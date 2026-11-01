@@ -12,3 +12,8 @@
 # PWABuilder-generated store packages (downloaded, not source)
 /store/android/
 /store/ios/
+
+# Local SQLite database (live data — never commit)
+/data/*.db
+/data/*.db-shm
+/data/*.db-wal
