@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Form, redirect, useActionData } from "react-router";
+import { Form, redirect, useActionData, useLoaderData } from "react-router";
 import type { Route } from "./+types/signup";
 import { getUserId } from "~/lib/auth.server";
 import { hashPassword, createVerificationToken } from "~/lib/auth.server";
@@ -8,6 +8,8 @@ import { isEmailConfigured, sendVerificationEmail } from "~/lib/email.server";
 import { validatePassword, MAX_PASSWORD_LENGTH } from "~/lib/password";
 import { PasswordHints } from "~/components/PasswordHints";
 import { ANIMAL_EMOJIS, DEFAULT_PROFILE_EMOJI, isAllowedProfileEmoji } from "~/lib/emoji";
+import { getTurnstileSiteKey, verifyTurnstile } from "~/lib/turnstile.server";
+import { Turnstile } from "~/components/Turnstile";
 
 export function meta({}: Route.MetaArgs) {
   return [{ title: "Sign up – Terrible Football Liverpool" }];
@@ -16,11 +18,15 @@ export function meta({}: Route.MetaArgs) {
 export async function loader({ request }: { request: Request }) {
   const userId = await getUserId(request);
   if (userId) return redirect("/events");
-  return null;
+  return { turnstileSiteKey: getTurnstileSiteKey() };
 }
 
 export async function action({ request }: { request: Request }) {
   const formData = await request.formData();
+  // Bot check first, before any lookups (so bots can't probe which usernames/emails exist).
+  if (!(await verifyTurnstile(request, formData))) {
+    return { error: "Please complete the verification check and try again." };
+  }
   const username = String(formData.get("username") ?? "").trim();
   const firstName = String(formData.get("firstName") ?? "").trim();
   const lastName = String(formData.get("lastName") ?? "").trim();
@@ -108,6 +114,7 @@ function getOrigin(request: Request): string {
 }
 
 export default function Signup() {
+  const { turnstileSiteKey } = useLoaderData<typeof loader>();
   const actionData = useActionData<typeof action>();
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
@@ -291,6 +298,8 @@ export default function Signup() {
               Pick an animal emoji to show next to your name.
             </p>
           </div>
+          {/* Tokens are single-use, so reset the widget after each failed attempt. */}
+          {turnstileSiteKey && <Turnstile siteKey={turnstileSiteKey} resetKey={actionData} />}
           <button
             type="submit"
             className="w-full rounded-xl bg-[#f56772] px-4 py-3 text-[17px] font-medium text-white hover:opacity-90 active:opacity-80 transition-opacity"
