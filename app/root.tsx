@@ -216,17 +216,18 @@ export default function App() {
                   Install app
                 </button>
               )}
-              <Link to="/settings" className={linkClass}>
-                Settings
-              </Link>
-              <span className="flex items-center gap-2 text-[15px] text-neutral-500 dark:text-neutral-400 min-w-0">
+              <Link
+                to="/settings"
+                title="Settings"
+                className="flex items-center gap-2 text-[15px] text-neutral-500 hover:text-neutral-900 dark:text-neutral-400 dark:hover:text-white transition-colors min-w-0"
+              >
                 {user.profileEmoji && (
                   <span className="text-lg leading-none shrink-0" aria-hidden>
                     {user.profileEmoji}
                   </span>
                 )}
                 <span className="truncate">{user.username}</span>
-              </span>
+              </Link>
               <Form method="post" action="/logout">
                 <button type="submit" className="text-[15px] text-[#f56772] hover:opacity-80">
                   Log out
@@ -279,9 +280,6 @@ export default function App() {
                     Contact
                   </Link>
                 )}
-                <Link to="/settings" className={mobileLinkClass} onClick={() => setMobileOpen(false)}>
-                  Settings
-                </Link>
                 {showInstallButton && (
                   <button
                     type="button"
@@ -298,14 +296,19 @@ export default function App() {
                   </button>
                 )}
                 <div className="flex items-center justify-between py-3">
-                  <span className="flex items-center gap-2 text-[15px] text-neutral-500 dark:text-neutral-400 min-w-0">
+                  <Link
+                    to="/settings"
+                    title="Settings"
+                    onClick={() => setMobileOpen(false)}
+                    className="flex items-center gap-2 text-[15px] text-neutral-500 hover:text-neutral-900 dark:text-neutral-400 dark:hover:text-white transition-colors min-w-0"
+                  >
                     {user.profileEmoji && (
                       <span className="inline-grid place-items-center w-6 h-6 text-lg leading-none shrink-0" aria-hidden>
                         {user.profileEmoji}
                       </span>
                     )}
                     <span className="truncate leading-none">{user.username}</span>
-                  </span>
+                  </Link>
                   <Form method="post" action="/logout">
                     <button type="submit" className="text-[15px] font-medium text-[#f56772] hover:opacity-80">
                       Log out
