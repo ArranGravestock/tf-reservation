@@ -3,7 +3,7 @@ import { Form, Link, redirect, useLoaderData, useActionData } from "react-router
 import QRCode from "qrcode";
 import type { Route } from "./+types/events.$eventId";
 import { isAdmin, requireAdmin, requireVerifiedUser } from "~/lib/auth.server";
-import { getDb, updateEvent, isEventEnded, isEventStarted, isEventDate, getEventHosts, setEventHost, isUserBlocked, LATE_BLOCK_SECONDS, type Event } from "~/lib/db.server";
+import { getDb, cancelEvent, updateEvent, isEventEnded, isEventStarted, isEventDate, getEventHosts, setEventHost, isUserBlocked, LATE_BLOCK_SECONDS, type Event } from "~/lib/db.server";
 import { DEFAULT_PROFILE_EMOJI } from "~/lib/emoji";
 import { renderMarkdown } from "~/lib/markdown.server";
 
@@ -28,14 +28,16 @@ export async function loader({ request, params }: { request: Request; params: Pr
     .get(id) as Event | undefined;
   if (!event) throw new Response("Not found", { status: 404 });
   if (!isEventDate(event.event_date) && !event.custom) throw new Response("Not found", { status: 404 });
-  if (event.cancelled) throw new Response("Not found", { status: 404 });
+  // Cancelled events stay viewable (linked from cancellation notifications)
+  // but are read-only — treated as ended below.
+  const eventCancelled = !!event.cancelled;
   const signups = db.prepare(
     `SELECT u.id, u.username, u.first_name, u.last_name, u.profile_emoji, s.created_at as signed_up_at, COALESCE(s.guest_count, 0) as guest_count, s.attendance_status FROM event_signups s JOIN users u ON u.id = s.user_id WHERE s.event_id = ? ORDER BY s.created_at ASC`
   ).all(id) as { id: number; username: string; first_name: string | null; last_name: string | null; profile_emoji: string | null; signed_up_at: number; guest_count: number; attendance_status: string | null }[];
   const userSignedUp = signups.some((s) => s.id === user.id);
   const currentUserSignup = signups.find((s) => s.id === user.id);
-  const eventEnded = isEventEnded(event);
-  const eventStarted = isEventStarted(event);
+  const eventEnded = isEventEnded(event) || eventCancelled;
+  const eventStarted = isEventStarted(event) || eventCancelled;
   // First-timer: the user has never attended (signed up for) a past event other
   // than this one.
   const today = new Date().toISOString().slice(0, 10);
@@ -60,6 +62,7 @@ export async function loader({ request, params }: { request: Request; params: Pr
     isAdmin: isAdmin(user),
     eventEnded,
     eventStarted,
+    eventCancelled,
     isFirstTimer,
     hosts,
     userIsHost,
@@ -74,11 +77,14 @@ export async function action({ request, params }: { request: Request; params: Pr
   const id = parseInt(eventId, 10);
   if (Number.isNaN(id)) return { error: "Invalid event" };
   const db = getDb();
-  const event = db.prepare("SELECT id, event_date, time, custom FROM events WHERE id = ?").get(id) as
-    | { id: number; event_date: string; time: string | null; custom: number }
+  const event = db.prepare("SELECT id, event_date, time, custom, cancelled FROM events WHERE id = ?").get(id) as
+    | { id: number; event_date: string; time: string | null; custom: number; cancelled: number }
     | undefined;
   if (!event) return { error: "Event not found" };
   if (!isEventDate(event.event_date) && !event.custom) return { error: "Event not found" };
+  // Read-only: this also keeps sign-ups intact, which is how the cancellation
+  // notification keeps reaching those players.
+  if (event.cancelled) return { error: "This event has been cancelled." };
   const ended = isEventEnded(event);
   const started = isEventStarted(event);
 
@@ -154,8 +160,13 @@ export async function action({ request, params }: { request: Request; params: Pr
   }
 
   if (intent === "cancel") {
-    await requireAdmin(request);
-    db.prepare("UPDATE events SET cancelled = 1 WHERE id = ?").run(id);
+    const admin = await requireAdmin(request);
+    const reason = formData.get("reason");
+    cancelEvent(db, {
+      eventId: id,
+      reason: typeof reason === "string" ? reason.slice(0, 2000) : null,
+      cancelledBy: admin.id,
+    });
     return redirect("/events");
   }
 
@@ -255,9 +266,10 @@ function formatBlockedDate(unixSeconds: number) {
 }
 
 export default function EventDetail() {
-  const { event, signups, userSignedUp, currentUserGuestCount, isAdmin, eventEnded, eventStarted, isFirstTimer, hosts, userIsHost, donationQrCode, whatsappQrCode, contentHtml } = useLoaderData<typeof loader>();
+  const { event, signups, userSignedUp, currentUserGuestCount, isAdmin, eventEnded, eventStarted, eventCancelled, isFirstTimer, hosts, userIsHost, donationQrCode, whatsappQrCode, contentHtml } = useLoaderData<typeof loader>();
   const actionData = useActionData<typeof action>();
   const [signupModalOpen, setSignupModalOpen] = useState(false);
+  const [cancelModalOpen, setCancelModalOpen] = useState(false);
   const [signupConfirmModalOpen, setSignupConfirmModalOpen] = useState(false);
   const [signupConfirmIsEditMode, setSignupConfirmIsEditMode] = useState(false);
   const [attendanceGoing, setAttendanceGoing] = useState(true);
@@ -382,7 +394,7 @@ export default function EventDetail() {
           >
             ← Back
           </Link>
-          {isAdmin && !isEditing && (
+          {isAdmin && !isEditing && !eventCancelled && (
             <button
               type="button"
               onClick={() => setIsEditing(true)}
@@ -402,7 +414,12 @@ export default function EventDetail() {
           )}
         </div>
 
-        {eventEnded && (
+        {eventCancelled && (
+          <div className="rounded-2xl bg-red-500/10 dark:bg-red-500/15 text-red-700 dark:text-red-300 px-4 py-3 mb-6 text-[15px] font-medium border border-red-300/80 dark:border-red-500/40">
+            This event has been cancelled
+          </div>
+        )}
+        {eventEnded && !eventCancelled && (
           <div className="rounded-2xl bg-neutral-200/80 dark:bg-neutral-700/80 text-neutral-800 dark:text-neutral-200 px-4 py-3 mb-6 text-[15px] font-medium border border-neutral-300/80 dark:border-neutral-600/80">
             This event has ended
           </div>
@@ -413,7 +430,7 @@ export default function EventDetail() {
           </div>
         )}
 
-        {userSignedUp && (
+        {userSignedUp && !eventCancelled && (
           <div className="rounded-2xl bg-green-500/10 dark:bg-green-500/15 text-green-700 dark:text-green-400 px-4 py-3 mb-6 text-[15px]">
             You&apos;re signed up for this event
           </div>
@@ -499,23 +516,15 @@ export default function EventDetail() {
           </Form>
         ) : null}
         {isEditing && isAdmin ? (
-          <Form
-            method="post"
-            className="mb-6"
-            onSubmit={(e) => {
-              if (!confirm("Cancel this event? It will be removed from the events listing.")) {
-                e.preventDefault();
-              }
-            }}
-          >
-            <input type="hidden" name="intent" value="cancel" />
+          <div className="mb-6">
             <button
-              type="submit"
+              type="button"
+              onClick={() => setCancelModalOpen(true)}
               className="rounded-xl border border-red-300 dark:border-red-500/40 px-4 py-2.5 text-[15px] font-medium text-red-600 dark:text-red-400 hover:bg-red-500/10 transition-colors"
             >
               Cancel event
             </button>
-          </Form>
+          </div>
         ) : (
           <>
             <h1 className="text-[28px] font-semibold text-neutral-900 dark:text-white mb-1.5">
@@ -976,6 +985,60 @@ export default function EventDetail() {
           </div>
         )}
 
+        {cancelModalOpen && (
+          <div
+            className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50"
+            onClick={() => setCancelModalOpen(false)}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="cancel-event-modal-title"
+          >
+            <div
+              className="bg-white dark:bg-neutral-800 rounded-3xl shadow-xl max-w-md w-full p-6 border border-neutral-200/80 dark:border-neutral-700/60"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <h3 id="cancel-event-modal-title" className="text-[17px] font-semibold text-neutral-900 dark:text-white mb-2">
+                Cancel this event?
+              </h3>
+              <p className="text-[15px] text-neutral-600 dark:text-neutral-300 mb-4">
+                It will be removed from the events listing.{" "}
+                {signups.length === 0
+                  ? "No one is signed up yet."
+                  : `${signups.length} signed-up ${signups.length === 1 ? "player" : "players"} will get a notification.`}
+              </p>
+              <Form method="post" onSubmit={() => setCancelModalOpen(false)}>
+                <input type="hidden" name="intent" value="cancel" />
+                <label htmlFor="cancel-reason" className="block text-[13px] font-medium text-neutral-600 dark:text-neutral-400 mb-1.5">
+                  Reason (optional)
+                </label>
+                <textarea
+                  id="cancel-reason"
+                  name="reason"
+                  rows={4}
+                  maxLength={2000}
+                  autoFocus
+                  placeholder="e.g. The pitch is waterlogged – see you next week!"
+                  className="w-full rounded-xl border border-neutral-300 dark:border-neutral-600 bg-white dark:bg-neutral-900/60 px-3.5 py-2.5 text-[15px] text-neutral-900 dark:text-white placeholder:text-neutral-400 focus:outline-none focus:ring-2 focus:ring-[#f56772] mb-4"
+                />
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setCancelModalOpen(false)}
+                    className="flex-1 rounded-xl border border-neutral-300 dark:border-neutral-600 px-4 py-2.5 text-[15px] font-medium text-neutral-700 dark:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-700/50 transition-colors"
+                  >
+                    Keep event
+                  </button>
+                  <button
+                    type="submit"
+                    className="flex-1 rounded-xl bg-red-600 px-4 py-2.5 text-[15px] font-medium text-white hover:bg-red-700 active:bg-red-800 transition-colors"
+                  >
+                    Cancel event
+                  </button>
+                </div>
+              </Form>
+            </div>
+          </div>
+        )}
         {signupConfirmModalOpen && (
           <div
             className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50"
@@ -1174,7 +1237,7 @@ export default function EventDetail() {
               </span>
             </button>
           )}
-          {userSignedUp ? (
+          {userSignedUp && !eventCancelled ? (
             <div className="flex flex-wrap items-center gap-3">
               <span className="text-[15px] font-medium text-green-600 dark:text-green-400">
                 {currentUserGuestCount > 0

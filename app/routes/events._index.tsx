@@ -35,11 +35,11 @@ export async function loader({ request }: { request: Request }) {
   const db = getDb();
   ensureSaturdayEvents(db, 12);
   const rows = db.prepare(
-    `SELECT e.id, e.event_date, e.created_at, e.title, e.description, e.location, e.time, e.custom,
+    `SELECT e.id, e.event_date, e.created_at, e.title, e.description, e.location, e.time, e.custom, e.cancelled,
        COUNT(s.id) + COALESCE(SUM(s.guest_count), 0) as signup_count
      FROM events e
      LEFT JOIN event_signups s ON s.event_id = e.id
-     WHERE (strftime('%w', e.event_date) IN ('6', '3') OR e.custom = 1) AND e.cancelled = 0
+     WHERE (strftime('%w', e.event_date) IN ('6', '3') OR e.custom = 1)
      GROUP BY e.id
      ORDER BY e.event_date ASC`
   ).all() as (Event & { signup_count: number | string })[];
@@ -104,7 +104,12 @@ export async function action({ request }: { request: Request }) {
       .filter((n) => !Number.isNaN(n));
     let removed = 0;
     for (const eventId of eventIds) {
-      const r = db.prepare("DELETE FROM event_signups WHERE event_id = ? AND user_id = ?").run(eventId, user.id);
+      const r = db
+        .prepare(
+          // Never drop sign-ups to cancelled events: they keep the cancellation notification visible.
+          "DELETE FROM event_signups WHERE event_id = ? AND user_id = ? AND event_id NOT IN (SELECT id FROM events WHERE cancelled = 1)"
+        )
+        .run(eventId, user.id);
       if (r.changes > 0) removed++;
     }
     return { bulkUnsignup: true, removed };
@@ -125,10 +130,10 @@ export async function action({ request }: { request: Request }) {
         : [];
     let signedUp = 0;
     for (const eventId of signupIds) {
-      const event = db.prepare("SELECT id, event_date, time FROM events WHERE id = ?").get(eventId) as
-        | { id: number; event_date: string; time: string | null }
+      const event = db.prepare("SELECT id, event_date, time, cancelled FROM events WHERE id = ?").get(eventId) as
+        | { id: number; event_date: string; time: string | null; cancelled: number }
         | undefined;
-      if (!event || isEventStarted(event)) continue;
+      if (!event || event.cancelled || isEventStarted(event)) continue;
       const existing = db.prepare("SELECT 1 FROM event_signups WHERE event_id = ? AND user_id = ?").get(eventId, user.id);
       if (existing) continue;
       try {
@@ -140,7 +145,12 @@ export async function action({ request }: { request: Request }) {
     }
     let removed = 0;
     for (const eventId of unsignupIds) {
-      const r = db.prepare("DELETE FROM event_signups WHERE event_id = ? AND user_id = ?").run(eventId, user.id);
+      const r = db
+        .prepare(
+          // Never drop sign-ups to cancelled events: they keep the cancellation notification visible.
+          "DELETE FROM event_signups WHERE event_id = ? AND user_id = ? AND event_id NOT IN (SELECT id FROM events WHERE cancelled = 1)"
+        )
+        .run(eventId, user.id);
       if (r.changes > 0) removed++;
     }
     return {
@@ -161,10 +171,10 @@ export async function action({ request }: { request: Request }) {
     .filter((n) => !Number.isNaN(n));
   let signedUp = 0;
   for (const eventId of eventIds) {
-    const event = db.prepare("SELECT id, event_date, time FROM events WHERE id = ?").get(eventId) as
-      | { id: number; event_date: string; time: string | null }
+    const event = db.prepare("SELECT id, event_date, time, cancelled FROM events WHERE id = ?").get(eventId) as
+      | { id: number; event_date: string; time: string | null; cancelled: number }
       | undefined;
-    if (!event || isEventStarted(event)) continue;
+    if (!event || event.cancelled || isEventStarted(event)) continue;
     const existing = db.prepare("SELECT 1 FROM event_signups WHERE event_id = ? AND user_id = ?").get(eventId, user.id);
     if (existing) continue;
     try {
@@ -230,10 +240,12 @@ export default function EventsIndex() {
     });
   }
 
-  const cardContent = (event: EventWithSignups, past = false) => (
+  const cardContent = (event: EventWithSignups, past = false) => {
+    const cancelled = !!event.cancelled;
+    return (
     <>
       <div className="w-full aspect-[21/9] shrink-0 rounded-t-2xl overflow-hidden bg-neutral-200/80 dark:bg-neutral-700/60 flex items-center justify-center relative">
-        {bulkMode && (
+        {bulkMode && !cancelled && (
           <div
             className="absolute top-2 left-2 z-10 flex items-center gap-2 rounded-full bg-white px-2.5 py-1.5 shadow-sm"
             onClick={(e) => e.stopPropagation()}
@@ -248,20 +260,24 @@ export default function EventsIndex() {
             <span className="text-[13px] font-medium text-neutral-700">Sign up</span>
           </div>
         )}
-        {!bulkMode && userSignedUpSet.has(event.id) && (
+        {!bulkMode && !cancelled && userSignedUpSet.has(event.id) && (
           <span className="absolute top-2 left-2 z-10 inline-flex items-center rounded-full bg-green-500/90 px-2.5 py-0.5 text-[12px] font-medium text-white shadow-sm">
             {past ? "Signed up" : "Attending"}
           </span>
         )}
-        {past && (
+        {cancelled ? (
+          <span className="absolute top-2 right-2 z-10 inline-flex items-center rounded-full bg-red-600/90 px-2.5 py-0.5 text-[12px] font-medium text-white shadow-sm">
+            Cancelled
+          </span>
+        ) : past ? (
           <span className="absolute top-2 right-2 z-10 inline-flex items-center rounded-full bg-neutral-800/80 dark:bg-neutral-900/80 px-2.5 py-0.5 text-[12px] font-medium text-white shadow-sm">
             Ended
           </span>
-        )}
+        ) : null}
         {!event.custom && (
           <SessionImage
             seed={event.id}
-            className="h-full w-full text-neutral-500 dark:text-neutral-400"
+            className={`h-full w-full text-neutral-500 dark:text-neutral-400 ${cancelled ? "opacity-40 grayscale" : ""}`}
           />
         )}
       </div>
@@ -305,7 +321,8 @@ export default function EventsIndex() {
         </span>
       </div>
     </>
-  );
+    );
+  };
 
   const renderMonths = (list: typeof months, past = false) => (
     <div className="space-y-8">
@@ -317,7 +334,14 @@ export default function EventsIndex() {
           <ul className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
             {events.map((event) => (
               <li key={event.id}>
-                {bulkMode ? (
+                {bulkMode && event.cancelled ? (
+                  <div
+                    aria-disabled="true"
+                    className="flex flex-col h-full rounded-2xl border overflow-hidden opacity-60 cursor-not-allowed bg-white dark:bg-neutral-800/80 border-neutral-200/80 dark:border-neutral-700/60"
+                  >
+                    {cardContent(event, past)}
+                  </div>
+                ) : bulkMode ? (
                   <div
                     role="button"
                     tabIndex={0}

@@ -22,10 +22,13 @@ export default [
     route("configuration", "routes/admin.configuration.tsx"),
   ]),
   route("contact", "routes/contact.tsx"),
-  route("notices", "routes/notices.tsx"),
-  route("notices/create", "routes/notices.create.tsx"),
-  route("notices/dismiss", "routes/notices.dismiss.tsx"),
-  route("notices/:noticeId", "routes/notices.$noticeId.tsx"),
+  route("notifications", "routes/notifications.tsx"),
+  route("notifications/create", "routes/notifications.create.tsx"),
+  route("notifications/read", "routes/notifications.read.tsx"),
+  route("notifications/:noticeId", "routes/notifications.$noticeId.tsx"),
+  // Old URLs from before the rename.
+  route("notices/*", "routes/notices-redirect.tsx", { id: "notices-redirect" }),
+  route("notices", "routes/notices-redirect.tsx", { id: "notices-redirect-index" }),
   route("late-warning/dismiss", "routes/late-warning.dismiss.tsx"),
   route("faq", "routes/faq.tsx"),
   route("events", "routes/events.tsx", [

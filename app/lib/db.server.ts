@@ -52,9 +52,10 @@ function createDb(): Database.Database {
       created_at INTEGER NOT NULL DEFAULT (unixepoch()),
       created_by INTEGER REFERENCES users(id)
     );
-    CREATE TABLE IF NOT EXISTS notice_dismissals (
+    CREATE TABLE IF NOT EXISTS notice_reads (
       user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
       notice_id INTEGER NOT NULL REFERENCES notices(id) ON DELETE CASCADE,
+      read_at INTEGER NOT NULL DEFAULT (unixepoch()),
       PRIMARY KEY (user_id, notice_id)
     );
     CREATE INDEX IF NOT EXISTS idx_notices_event ON notices(event_id);
@@ -191,6 +192,22 @@ function createDb(): Database.Database {
     // pop up warnings for signups that were already marked late before this
     // feature existed; it's explicitly reset to 0 when a signup is newly marked late.
     db.exec("ALTER TABLE event_signups ADD COLUMN late_ack INTEGER NOT NULL DEFAULT 1");
+  }
+  const noticeCols = db.prepare("PRAGMA table_info(notices)").all() as { name: string }[];
+  if (!noticeCols.some((c) => c.name === "kind")) {
+    // 'update' (admin-written notice) or 'cancelled' (sent when an event is cancelled).
+    db.exec("ALTER TABLE notices ADD COLUMN kind TEXT NOT NULL DEFAULT 'update'");
+  }
+  // Notifications used to be dismissible (hidden for good); they're now kept
+  // and only marked as read. Carry old dismissals over as reads.
+  const hasDismissals = db
+    .prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'notice_dismissals'")
+    .get();
+  if (hasDismissals) {
+    db.transaction(() => {
+      db.exec("INSERT OR IGNORE INTO notice_reads (user_id, notice_id) SELECT user_id, notice_id FROM notice_dismissals");
+      db.exec("DROP TABLE notice_dismissals");
+    })();
   }
   cols = db.prepare("PRAGMA table_info(users)").all() as { name: string }[];
   if (!cols.some((c) => c.name === "late_count")) {
@@ -363,7 +380,7 @@ export function deleteUserAccount(db: Database.Database, userId: number): void {
   const run = db.transaction((uid: number) => {
     db.prepare("DELETE FROM event_signups WHERE user_id = ?").run(uid);
     db.prepare("DELETE FROM event_hosts WHERE user_id = ?").run(uid);
-    db.prepare("DELETE FROM notice_dismissals WHERE user_id = ?").run(uid);
+    db.prepare("DELETE FROM notice_reads WHERE user_id = ?").run(uid);
     db.prepare("UPDATE notices SET created_by = NULL WHERE created_by = ?").run(uid);
     const convo = db.prepare("SELECT id FROM organiser_conversations WHERE user_id = ?").get(uid) as
       | { id: number }
@@ -760,68 +777,110 @@ export function setEventHost(
   }
 }
 
+export type NoticeKind = "update" | "cancelled";
+
 export type Notice = {
   id: number;
   event_id: number;
   message: string;
   created_at: number;
   created_by: number | null;
+  kind: NoticeKind;
 };
 
 export function createNotice(
   db: Database.Database,
-  opts: { eventId: number; message: string; createdBy?: number }
+  opts: { eventId: number; message: string; createdBy?: number; kind?: NoticeKind }
 ): Notice {
   const run = db
-    .prepare("INSERT INTO notices (event_id, message, created_by) VALUES (?, ?, ?)")
-    .run(opts.eventId, opts.message.trim(), opts.createdBy ?? null);
-  const row = db.prepare("SELECT id, event_id, message, created_at, created_by FROM notices WHERE id = ?").get(
+    .prepare("INSERT INTO notices (event_id, message, created_by, kind) VALUES (?, ?, ?, ?)")
+    .run(opts.eventId, opts.message.trim(), opts.createdBy ?? null, opts.kind ?? "update");
+  const row = db.prepare("SELECT id, event_id, message, created_at, created_by, kind FROM notices WHERE id = ?").get(
     run.lastInsertRowid
   ) as Notice;
   return row;
 }
 
-/** Notices for events the user has signed up for, excluding dismissed, newest first */
-export function getNoticesForUser(db: Database.Database, userId: number): (Notice & { event_date: string })[] {
+export const DEFAULT_CANCELLATION_MESSAGE = "This event has been cancelled.";
+
+/**
+ * Cancel an event and notify everyone signed up for it via a 'cancelled'
+ * notice (shown in their notification panel). Sign-ups are kept so the notice
+ * still reaches them.
+ */
+export function cancelEvent(
+  db: Database.Database,
+  opts: { eventId: number; reason?: string | null; cancelledBy: number }
+): void {
+  db.transaction(() => {
+    db.prepare("UPDATE events SET cancelled = 1 WHERE id = ?").run(opts.eventId);
+    createNotice(db, {
+      eventId: opts.eventId,
+      message: opts.reason?.trim() || DEFAULT_CANCELLATION_MESSAGE,
+      createdBy: opts.cancelledBy,
+      kind: "cancelled",
+    });
+  })();
+}
+
+export type UserNotice = Notice & { event_date: string; event_title: string | null; read: boolean };
+
+/**
+ * Notifications for events the user has signed up for (including cancelled
+ * events), newest first, each flagged read/unread. Capped to the most recent
+ * `limit` so the panel stays small.
+ */
+export function getNoticesForUser(db: Database.Database, userId: number, limit = 50): UserNotice[] {
   const rows = db
     .prepare(
-      `SELECT n.id, n.event_id, n.message, n.created_at, n.created_by, e.event_date
+      `SELECT n.id, n.event_id, n.message, n.created_at, n.created_by, n.kind, e.event_date, e.title as event_title,
+         (r.notice_id IS NOT NULL) AS read
        FROM notices n
        INNER JOIN events e ON e.id = n.event_id
        INNER JOIN event_signups s ON s.event_id = n.event_id AND s.user_id = ?
-       LEFT JOIN notice_dismissals d ON d.notice_id = n.id AND d.user_id = ?
-       WHERE d.notice_id IS NULL
-       ORDER BY n.created_at DESC`
+       LEFT JOIN notice_reads r ON r.notice_id = n.id AND r.user_id = ?
+       ORDER BY n.created_at DESC, n.id DESC
+       LIMIT ?`
     )
-    .all(userId, userId) as (Notice & { event_date: string })[];
-  return rows;
+    .all(userId, userId, limit) as (Omit<UserNotice, "read"> & { read: number })[];
+  return rows.map((r) => ({ ...r, read: r.read === 1 }));
 }
 
-export function dismissNotice(db: Database.Database, userId: number, noticeId: number): void {
-  db.prepare("INSERT OR IGNORE INTO notice_dismissals (user_id, notice_id) VALUES (?, ?)").run(userId, noticeId);
+export function markNoticeRead(db: Database.Database, userId: number, noticeId: number): void {
+  db.prepare("INSERT OR IGNORE INTO notice_reads (user_id, notice_id) VALUES (?, ?)").run(userId, noticeId);
+}
+
+/** Mark every notification the user can see as read. */
+export function markAllNoticesRead(db: Database.Database, userId: number): void {
+  db.prepare(
+    `INSERT OR IGNORE INTO notice_reads (user_id, notice_id)
+     SELECT ?, n.id FROM notices n
+     INNER JOIN event_signups s ON s.event_id = n.event_id AND s.user_id = ?`
+  ).run(userId, userId);
 }
 
 /** Single notice by id with event info, or null */
 export function getNoticeById(
   db: Database.Database,
   noticeId: number
-): (Notice & { event_date: string; event_title: string | null }) | null {
+): (Notice & { event_date: string; event_title: string | null; event_cancelled: boolean }) | null {
   const row = db
     .prepare(
-      `SELECT n.id, n.event_id, n.message, n.created_at, n.created_by, e.event_date, e.title as event_title
+      `SELECT n.id, n.event_id, n.message, n.created_at, n.created_by, n.kind, e.event_date, e.title as event_title,
+         e.cancelled as event_cancelled
        FROM notices n
        JOIN events e ON e.id = n.event_id
        WHERE n.id = ?`
     )
-    .get(noticeId) as (Notice & { event_date: string; event_title: string | null }) | undefined;
-  return row ?? null;
+    .get(noticeId) as (Notice & { event_date: string; event_title: string | null; event_cancelled: number }) | undefined;
+  return row ? { ...row, event_cancelled: row.event_cancelled === 1 } : null;
 }
 
 /** All notices with event info, newest first (for admin listing) */
 export function getNoticesList(db: Database.Database): (Notice & { event_date: string; event_title: string | null })[] {
   const rows = db
     .prepare(
-      `SELECT n.id, n.event_id, n.message, n.created_at, n.created_by, e.event_date, e.title as event_title
+      `SELECT n.id, n.event_id, n.message, n.created_at, n.created_by, n.kind, e.event_date, e.title as event_title
        FROM notices n
        JOIN events e ON e.id = n.event_id
        ORDER BY n.created_at DESC`

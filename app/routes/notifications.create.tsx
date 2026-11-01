@@ -1,10 +1,10 @@
 import { Form, Link, redirect, useActionData, useLoaderData } from "react-router";
-import type { Route } from "./+types/notices.create";
+import type { Route } from "./+types/notifications.create";
 import { requireAdmin } from "~/lib/auth.server";
 import { getDb, ensureSaturdayEvents, createNotice, type Event } from "~/lib/db.server";
 
 export function meta({}: Route.MetaArgs) {
-  return [{ title: "Create notice – Terrible Football Liverpool" }];
+  return [{ title: "Send notification – Terrible Football Liverpool" }];
 }
 
 export async function loader({ request }: Route.LoaderArgs) {
@@ -33,7 +33,7 @@ export async function action({ request }: Route.ActionArgs) {
   const event = db.prepare("SELECT id FROM events WHERE id = ?").get(eventIdNum);
   if (!event) return { error: "Event not found." };
   createNotice(db, { eventId: eventIdNum, message: message.trim(), createdBy: user.id });
-  return redirect("/notices?created=1");
+  return redirect("/notifications?created=1");
 }
 
 function formatEventLabel(e: { event_date: string; title?: string | null }) {
@@ -42,21 +42,21 @@ function formatEventLabel(e: { event_date: string; title?: string | null }) {
   return e.title?.trim() ? `${dateStr} – ${e.title}` : dateStr;
 }
 
-export default function NoticesCreate() {
+export default function NotificationCreate() {
   const { events } = useLoaderData<typeof loader>();
   const actionData = useActionData<typeof action>();
 
   return (
     <main className="min-h-screen bg-[#f5f5f7] dark:bg-[#1c1c1e] p-6 pb-12">
       <div className="max-w-2xl mx-auto">
-        <Link to="/notices" className="text-[15px] text-[#f56772] hover:opacity-80 mb-6 inline-block">
-          ← Back to notices
+        <Link to="/notifications" className="text-[15px] text-[#f56772] hover:opacity-80 mb-6 inline-block">
+          ← Back to notifications
         </Link>
         <h1 className="text-[28px] font-semibold text-neutral-900 dark:text-white mb-2">
-          Create notice
+          Send notification
         </h1>
         <p className="text-[15px] text-neutral-500 dark:text-neutral-400 mb-8">
-          Notices are shown as a toast to everyone who has signed up for the selected event.
+          Notifications appear in the notification panel of everyone who has signed up for the selected event.
         </p>
         <Form
           method="post"
@@ -102,7 +102,7 @@ export default function NoticesCreate() {
             type="submit"
             className="w-full rounded-xl bg-[#f56772] px-4 py-3 text-[17px] font-medium text-white hover:opacity-90 active:opacity-80 transition-opacity"
           >
-            Create notice
+            Send notification
           </button>
         </Form>
       </div>

@@ -15,6 +15,7 @@ import {
 import type { Route } from "./+types/root";
 import { getUser } from "~/lib/auth.server";
 import { getDb, getNoticesForUser, getLateWarningForUser } from "~/lib/db.server";
+import { NotificationPanel, type PanelNotice } from "~/components/NotificationPanel";
 import "./app.css";
 
 // Not yet in lib.dom.d.ts.
@@ -32,12 +33,16 @@ export const links: Route.LinksFunction = () => [
 
 export async function loader({ request }: { request: Request }) {
   const user = await getUser(request);
-  const notices = user
+  const notices: PanelNotice[] = user
     ? getNoticesForUser(getDb(), user.id).map((n) => ({
         id: n.id,
-        message: n.message,
         event_id: n.event_id,
+        kind: n.kind,
+        message: n.message,
         event_date: n.event_date,
+        event_title: n.event_title,
+        created_at: n.created_at,
+        read: n.read,
       }))
     : [];
   const lateWarning = user ? getLateWarningForUser(getDb(), user.id) : null;
@@ -77,7 +82,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
 export default function App() {
   const data = useRouteLoaderData("root") as {
     user: { id: number; username: string; profileEmoji: string | null; isAdmin: boolean } | null;
-    notices: { id: number; message: string; event_id: number; event_date: string }[];
+    notices: PanelNotice[];
     lateWarning: {
       signupId: number;
       eventId: number;
@@ -181,14 +186,9 @@ export default function App() {
                   Events
                 </Link>
                 {user.isAdmin && (
-                  <>
-                    <Link to="/admin/users" className={linkClass}>
-                      Admin
-                    </Link>
-                    <Link to="/notices" className={linkClass}>
-                      Notices
-                    </Link>
-                  </>
+                  <Link to="/admin/users" className={linkClass}>
+                    Admin
+                  </Link>
                 )}
                 <Link to="/faq" className={linkClass}>
                   FAQ
@@ -201,6 +201,7 @@ export default function App() {
               </div>
             </div>
 
+            <div className="flex items-center gap-1 lg:gap-4 min-w-0">
             {/* Desktop account group */}
             <div className="hidden lg:flex items-center gap-6 min-w-0">
               {showInstallButton && (
@@ -233,6 +234,8 @@ export default function App() {
               </Form>
             </div>
 
+            <NotificationPanel notices={notices} isAdmin={user.isAdmin} />
+
             {/* Mobile hamburger */}
             <button
               type="button"
@@ -250,6 +253,7 @@ export default function App() {
                 )}
               </svg>
             </button>
+            </div>
           </div>
 
           {/* Mobile menu panel */}
@@ -263,14 +267,9 @@ export default function App() {
                   Events
                 </Link>
                 {user.isAdmin && (
-                  <>
-                    <Link to="/admin/users" className={mobileLinkClass} onClick={() => setMobileOpen(false)}>
-                      Admin
-                    </Link>
-                    <Link to="/notices" className={mobileLinkClass} onClick={() => setMobileOpen(false)}>
-                      Notices
-                    </Link>
-                  </>
+                  <Link to="/admin/users" className={mobileLinkClass} onClick={() => setMobileOpen(false)}>
+                    Admin
+                  </Link>
                 )}
                 <Link to="/faq" className={mobileLinkClass} onClick={() => setMobileOpen(false)}>
                   FAQ
@@ -319,52 +318,6 @@ export default function App() {
         </nav>
       )}
       <Outlet />
-
-      {user && notices.length > 0 && (
-        <div
-          className="fixed top-14 left-0 right-0 z-50 pt-4 px-4 flex flex-col gap-3 items-center pointer-events-none"
-          aria-live="polite"
-        >
-          <div className="w-full max-w-2xl lg:max-w-5xl mx-auto flex flex-col gap-3 pointer-events-auto">
-            {notices.map((notice) => {
-              const dateStr = new Date(notice.event_date + "T12:00:00").toLocaleDateString("en-GB", {
-                weekday: "short",
-                day: "numeric",
-                month: "short",
-                year: "numeric",
-              });
-              return (
-                <div
-                  key={notice.id}
-                  className="rounded-2xl bg-neutral-700 dark:bg-neutral-600 text-white px-4 py-3 shadow-lg border border-neutral-600 dark:border-neutral-500 flex items-center justify-between gap-3"
-                >
-                  <div className="flex-1 min-w-0">
-                    <p className="text-[13px] text-neutral-300 dark:text-neutral-200 mb-0.5">{dateStr}</p>
-                    <Link
-                      to={`/notices/${notice.id}`}
-                      className="text-[15px] leading-snug font-medium underline hover:no-underline"
-                    >
-                      An event you&apos;re signed up for has an update
-                    </Link>
-                  </div>
-                  <Form method="post" action="/notices/dismiss" className="shrink-0">
-                    <input type="hidden" name="notice_id" value={notice.id} />
-                    <button
-                      type="submit"
-                      className="rounded-lg p-1.5 bg-white/20 hover:bg-white/30 text-white transition-colors"
-                      aria-label="Dismiss"
-                    >
-                      <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-                      </svg>
-                    </button>
-                  </Form>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      )}
 
       {lateWarning && (
         <div
