@@ -1,16 +1,44 @@
 import { reactRouter } from "@react-router/dev/vite";
 import tailwindcss from "@tailwindcss/vite";
-import { defineConfig } from "vite";
-import tsconfigPaths from "vite-tsconfig-paths";
+import { createReadStream, existsSync } from "node:fs";
+import path from "node:path";
+import { defineConfig, type Plugin } from "vite";
 import { VitePWA } from "vite-plugin-pwa";
 
+// vite-plugin-pwa only serves the dev service worker's workbox-*.js chunk
+// after /dev-sw.js has been requested in the current dev-server session. After
+// a restart, the SW already installed in the browser can request the chunk
+// first, which falls through to React Router ("No route matches URL
+// /workbox-….js"). Serve those chunks straight from dev-dist instead.
+function serveDevWorkbox(): Plugin {
+  return {
+    name: "serve-dev-workbox",
+    apply: "serve",
+    configureServer(server) {
+      const devDist = path.resolve(server.config.root, "dev-dist");
+      server.middlewares.use((req, res, next) => {
+        const match = req.url?.match(/^\/(workbox-[\w-]+\.js)(?:\?.*)?$/);
+        const file = match && path.join(devDist, match[1]);
+        if (!file || !existsSync(file)) return next();
+        res.setHeader("Content-Type", "text/javascript");
+        createReadStream(file).pipe(res);
+      });
+    },
+  };
+}
+
 export default defineConfig(({ command }) => ({
+  resolve: { tsconfigPaths: true },
   plugins: [
+    serveDevWorkbox(),
     tailwindcss(),
     reactRouter(),
-    tsconfigPaths(),
     VitePWA({
       registerType: "autoUpdate",
+      // React Router's client build goes to build/client, but vite-plugin-pwa
+      // 2 reads the top-level build.outDir (default "dist") — point it at the
+      // directory react-router-serve actually serves.
+      outDir: "build/client",
       // No index.html for this SSR framework to inject a registration script
       // into — the service worker is registered manually from app/root.tsx.
       injectRegister: false,
