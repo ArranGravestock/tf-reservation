@@ -22,6 +22,9 @@ export default defineConfig(({ command }) => ({
       devOptions: {
         enabled: true,
         type: "module",
+        // dev-dist never contains build assets, so workbox's default glob
+        // pattern always matches nothing — silence that expected warning.
+        suppressWarnings: true,
       },
       manifest: {
         // Fixed app identity PWABuilder/TWA use to key store updates —
